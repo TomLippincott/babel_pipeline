@@ -397,7 +397,7 @@ def create_small_asr_directory(target, source, env):
     directories = {k : env.Dir(os.path.abspath(v)) for k, v in directories.iteritems()}
 
     # the remainder are template files
-    templates = source[3:]
+    templates = source[3:6]
 
     # create one big configuration dictionary
     config = {k : v for k, v in sum([list(y) for y in [files.iteritems(), directories.iteritems(), parameters.iteritems()]], [])}
@@ -422,8 +422,8 @@ def create_small_asr_directory_emitter(target, source, env):
     directories["CONFIGURATION_PATH"] = target[0].rstr()
 
     # create a dependency on each file passed in
-    for name, path in files.iteritems():
-        env.Depends(target, path)
+    #for name, path in files.iteritems():
+    #    env.Depends(target, path)
 
     # all templates
     dlatsa = ["cfg.py", "construct.py", "test.py"]
@@ -433,7 +433,8 @@ def create_small_asr_directory_emitter(target, source, env):
  
     # new list of sources
     new_sources = [env.Value(files), env.Value(directories), env.Value(parameters)] + \
-        [os.path.join("data", "%s.dlatSA" % x) for x in dlatsa]
+        [os.path.join("data", "%s.dlatSA" % x) for x in dlatsa] + \
+        [p for n, p in files.iteritems()]
 
     return new_targets, new_sources
 
@@ -538,6 +539,15 @@ def filter_babel_gum(target, source, env):
 def score_results(target, source, env, for_signature):
     return "${PYTHON_INTERPRETER} ${SCORE_SCRIPT} --indusDB ${INDUS_DB} --sclite ${SCLITE_BINARY} ${SOURCES[0].read()} ${SOURCES[1].read()}/"
 
+def collate_results(target, source, env):
+    with meta_open(target[0].rstr(), "w") as ofd:
+        ofd.write("\t".join(["Exp", "Lang", "Pack", "Vocab", "Pron", "LM", "Sub", "Del", "Ins", "Err", "SErr"]) + "\n")
+        for fname in [x.rstr() for x in source]:
+            expname, language, pack, vocab, pron, lm = fname.split("/")[1:-3]
+            with meta_open(fname) as ifd:
+                spk, snt, wrd, corr, sub, dele, ins, err, serr = [re.split(r"\s+\|?\s*", l) for l in ifd if "aggregated" in l][0][1:-1]
+            ofd.write("\t".join([expname, language, pack, vocab, pron, lm, sub, dele, ins, err, serr]) + "\n")
+    return None
 
 def TOOLS_ADD(env):
     env.Append(BUILDERS = {"AppenToAttila" : Builder(action=appen_to_attila),
@@ -557,5 +567,6 @@ def TOOLS_ADD(env):
                            "FilterWords" : Builder(action=filter_words),                           
                            "FilterBabelGum" : Builder(action=filter_babel_gum),
                            "ScoreResults" : Builder(generator=score_results),
+                           "CollateResults" : Builder(action=collate_results),
                            })
                
