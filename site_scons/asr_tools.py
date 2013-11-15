@@ -312,7 +312,7 @@ def collect_text(target, source, env):
     words = set()
     with meta_open(target[0].rstr(), "w") as ofd:
         for dname in source:
-            for fname in glob(os.path.join(dname.rstr(), "*.txt")):
+            for fname in glob(os.path.join(dname.rstr(), "*.txt")) + glob(os.path.join(dname.rstr(), "*.txt.gz")):
                 with meta_open(fname) as ifd:
                     for line in ifd:
                         if not line.startswith("["):
@@ -480,7 +480,8 @@ def filter_babel_gum(target, source, env):
     return None
 
 def score_results(target, source, env, for_signature):
-    return "${PYTHON_INTERPRETER} ${SCORE_SCRIPT} --indusDB ${INDUS_DB} --sclite ${SCLITE_BINARY} ${SOURCES[0].read()} ${SOURCES[1].read()}/ &> /dev/null"
+    return "${PYTHON_INTERPRETER} ${SCORE_SCRIPT} --sclite ${SCLITE_BINARY} ${SOURCES[0].read()} ${SOURCES[1].read()}/ &> /dev/null"
+    #return "${PYTHON_INTERPRETER} ${SCORE_SCRIPT} --indusDB ${INDUS_DB} --sclite ${SCLITE_BINARY} ${SOURCES[0].read()} ${SOURCES[1].read()}/ &> /dev/null"
 
 def collate_results(target, source, env):
     with meta_open(target[0].rstr(), "w") as ofd:

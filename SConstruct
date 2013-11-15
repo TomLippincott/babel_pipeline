@@ -139,10 +139,11 @@ def run_experiment(jobs=20, default_files={}, default_directories={}, default_pa
                                                 "interval" : 120,
                                                 })])
 
-    asr_score = env.ScoreResults(pjoin(args["ASR_OUTPUT_PATH"], "ctm", "scoring", "babel106.dev.sys"), 
+    asr_score = env.ScoreResults(pjoin(args["ASR_OUTPUT_PATH"], "ctm", "scoring", "babel102.dev.sys"), 
                                  [env.Value("%s.dev" % (parameters["LANGUAGE_ID"])), env.Value(os.path.abspath(pjoin(args["ASR_OUTPUT_PATH"], "ctm")))])
     env.Depends(asr_score, test)
     return asr_score
+
     #
     # KEYWORD SEARCH
     #
@@ -298,7 +299,7 @@ for (language, language_id, expid), packs in env["LANGUAGES"].iteritems():
                                              ACOUSTIC_WEIGHT=locations["acoustic_weight"],
                                              ))
 
-        continue
+
         # triple-oracle experiment
         oracle_path = pjoin("work", language, pack, "triple_oracle")
         oracle_pronunciations, oracle_pnsp, oracle_tags = env.AppenToAttila([pjoin(oracle_path, x) for x in 
@@ -312,8 +313,8 @@ for (language, language_id, expid), packs in env["LANGUAGES"].iteritems():
         oracle_vocabulary = env.PronunciationsToVocabulary(pjoin(oracle_path, "oracle_vocabulary.txt"), oracle_pronunciations)
         oracle_language_model = env.IBMTrainLanguageModel(pjoin(oracle_path, "oracle_lm.3gm.arpabo.gz"), [oracle_text, oracle_text_words, env.Value(3)])
 
-        morfessor_input = env.TranscriptToMorfessor(pjoin("work", language, pack, "morfessor", "input.txt"), oracle_text)
-        continue
+        #morfessor_input = env.TranscriptToMorfessor(pjoin("work", language, pack, "morfessor", "input.txt"), oracle_text)
+
         experiments.append(language_pack_run(OUTPUT_PATH=oracle_path,
                                              VOCABULARY_FILE=oracle_vocabulary[0],
                                              PRONUNCIATIONS_FILE=oracle_pronunciations,
@@ -322,9 +323,10 @@ for (language, language_id, expid), packs in env["LANGUAGES"].iteritems():
                                              OOV_DICTIONARY=locations["oov_dictionary"],
                                              KEYWORDS=locations["keywords"],
                                              RTTM_FILE=locations["rttm"],
+                                             ACOUSTIC_WEIGHT=locations["acoustic_weight"],
                                              ))
 
-
+        continue
 
         # babelgum experiments
         for model, (probs, prons) in locations.get("babelgum", {}).iteritems():

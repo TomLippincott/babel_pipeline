@@ -64,7 +64,8 @@ def submit_job(target, source, env):
     while job.job_id in [x[0] for x in torque.get_jobs(True)]:
         logging.info("sleeping...")
         time.sleep(interval)
-    meta_open(target[0].rstr(), "w")
+    with meta_open(target[0].rstr(), "w") as ofd:
+        ofd.write(time.asctime() + "\n")
     return None
 
 
