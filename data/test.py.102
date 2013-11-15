@@ -1,0 +1,100 @@
+# -------------------------------------------------
+# Attila Speech Recognition Toolkit
+#
+# Module  : Dynamic Decoding
+# Author  : Hagen Soltau
+# Date    : 09/26/2007
+# $Id: test.py,v 1.8.14.1 2011/09/08 14:38:49 hsoltau Exp $
+#
+# -------------------------------------------------
+
+import os,sys,user
+from optparse import OptionParser
+
+# ------------------------------------------
+# Attila modules
+# ------------------------------------------
+
+from attila import *
+import cfg
+import dsearch, misc
+
+# ------------------------------------------
+# Arguments
+# ------------------------------------------
+
+parser = OptionParser()
+parser.add_option('-j',help='job identifier',dest='jid',default='0')
+parser.add_option('-n',help='number of jobs',dest='jnr',default='1')
+parser.add_option('-w',help='acoustic weight',dest='acweight',default='0.09')
+parser.add_option('-l',help='generate lattices',dest='genLat',default='0')
+
+(options, args) = parser.parse_args()
+
+jid    = int(options.jid)
+jnr    = int(options.jnr)
+genLat = (options.genLat == '1')
+
+# ------------------------------------------
+# Configuration modifier
+# ------------------------------------------
+
+cfg.acweight = float(options.acweight)
+
+# ------------------------------------------
+# Boot
+# ------------------------------------------
+
+# dbase
+db = cfg.db
+db.init(cfg.dbFile,'utterance',cfg.useDispatcher,jid,jnr,chunkSize=5)
+
+# frontend
+fe = cfg.fe
+fe.mel.readFilter(cfg.melFile)
+fe.mel.readWarp(cfg.warpFile)
+fe.lda.readLDA(cfg.ldaFile)
+
+# decoder
+se = dsearch.Decoder(speed=12,scale=cfg.acweight,lmType=32,genLat=genLat)
+se.initGraph(cfg)
+rescoreBeam = 5.0
+
+# NN Scorer
+nn = cfg.nn
+nn.configure()
+
+se.sc = NNScorer()
+se.dnet.scorer = se.sc
+se.sc.scale    = cfg.acweight
+se.sc.feat     = nn.feat
+se.sc.logInput = True
+se.sc.readPriors(cfg.priors)
+
+# ------------------------------------------
+# Main loop
+# ------------------------------------------
+
+def process(utt,f):
+    nn.eval(utt)
+    se.search()
+    key    = utt + ' ' + os.path.splitext(db.getFile(utt))[0]
+    txt    = se.getHyp().strip()
+    hyp    = se.getCTM(key,db.getFrom(utt))
+    tscore = se.getScore()
+    print utt,'score= %.5f frameN= %d'%(tscore,se.dnet.state.frameN)
+    print utt,'words=',txt
+    for c in hyp: print >>f,c
+    if genLat:
+        se.rescore(rescoreBeam)
+        se.lat.write(cfg.latDir+utt+'.fsm.gz',db.getFrom(utt))
+    return
+
+misc.makeDir(cfg.ctmDir)
+if genLat:
+    misc.makeDir(cfg.latDir)
+
+f = open(cfg.ctmDir+options.jid+'.ctm','w')
+for utt in db:
+    process(utt,f)
+f.close()

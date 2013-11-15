@@ -1,0 +1,75 @@
+# --------------------------------------------------------------------
+# Attila Speech Recognition Toolkit
+#
+# Module  : MLP
+# Author  : Hagen Soltau
+# Date    : 08/02/2012
+# $Id: cfg.py,v 1.3 2010/09/23 15:57:34 hsoltau Exp $
+# --------------------------------------------------------------------
+
+from attila import *
+import dbase, frontend, misc, nnet
+
+# error handling
+misc.errorMax = 150000
+errorHandler.setVerbosity(errorHandler.INFO_LOG)
+
+# dbase
+dbFile        = '${DATABASE_FILE.abspath}'
+db            = dbase.DB(dirFn=dbase.getFlatDir)
+useDispatcher = False
+
+# models - fixed
+psFile        = '${PHONE_FILE.abspath}'
+pssFile        = '${PHONE_SET_FILE.abspath}'
+tagsFile        = '${TAGS_FILE.abspath}'
+treeFile  = '${TREE_FILE.abspath}'
+priors        = '${PRIORS_FILE.abspath}'
+topoFile        = '${TOPO_FILE.abspath}'
+ttreeFile        = '${TOPO_TREE_FILE.abspath}'
+
+# models - depend on the vocabulary
+dictFile        = '${PRONUNCIATIONS_FILE.abspath}'
+vocab        = '${VOCABULARY_FILE.abspath}'
+lm        = '${LANGUAGE_MODEL_FILE.abspath}'
+graph        = '${GRAPH_OFILE.abspath}'
+
+# frontend
+samplingrate  = ${SAMPLING_RATE}
+featuretype   = '${FEATURE_TYPE}'
+# Change pcmDir to reflect where you put the audio files.
+pcmDir        = '${PCM_PATH.abspath}'
+melFile       = '${MEL_FILE.abspath}'
+warpFile      = '${WARP_FILE.abspath}'
+ldaFile       = '${LDA_FILE.abspath}'
+
+fe = frontend.FeCombo(db,samplingrate,featuretype)
+fe.ctx2           = frontend.FeCTX([fe.fmllr])
+fe.ctx2.spliceN   = 4
+fe.ctx2.db        = db
+fe.end            = fe.ctx2
+fe.pcm.pcmDir     = pcmDir
+fe.norm.normDir   = '${CMS_PATH.abspath}'
+fe.fmllr.fmllrDir = '${FMLLR_PATH.abspath}'
+fe.norm.normMode  = 1
+
+# models
+layerL = []
+for i in range(6):
+    l = nnet.LayerWeights()
+    l.name = 'layer%d'%i
+    l.isTrainable = False
+    l.initWeightFile = '${MODEL_PATH.abspath}/layer%d' % i
+    layerL.append(l)
+    if i < 5:
+        l = nnet.LayerSigmoid()
+        l.name = 'layer%d-nonl' % i
+        layerL.append(l)
+layerL[-1].matrixOut = True
+
+nn    = nnet.NeuralNet(layerL=layerL,depL=[fe.end])
+nn.db = db
+
+# output
+ctmDir = '${CTM_OPATH.abspath}/'
+latDir = '${LAT_OPATH.abspath}/'

@@ -16,6 +16,7 @@ import time
 import shutil
 import tempfile
 from common_tools import meta_open, temp_dir
+from arpabo import ProbabilityList, Arpabo, Pronunciations, Vocabulary
 
 # def meta_open(file_name, mode="r"):
 #     """
@@ -38,12 +39,13 @@ def run_command(cmd, env={}, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stde
 def query_files(target, source, env):
     # OUTPUT:
     # iv oov map w2w <- 
-    # INPUT: kw, iv
+    # INPUT: kw, iv, id
     # pad id to 4
     with meta_open(source[0].rstr()) as kw_fd, meta_open(source[1].rstr()) as iv_fd:
         keyword_xml = et.parse(kw_fd)
         keywords = set([(x.get("kwid"), x.find("kwtext").text.lower()) for x in keyword_xml.getiterator("kw")])
-        vocab = set([x.split()[1].strip().decode("utf-8") for x in iv_fd])
+        vocab = Pronunciations(iv_fd).get_words()
+        #set([x.split()[1].strip().decode("utf-8") for x in iv_fd])
         iv_keywords = sorted([(int(tag.split("-")[-1]), tag, term) for tag, term in keywords if all([y in vocab for y in term.split()])])
         oov_keywords = sorted([(int(tag.split("-")[-1]), tag, term) for tag, term in keywords if any([y not in vocab for y in term.split()])])
         language_id = source[-1].read()
@@ -53,7 +55,7 @@ def query_files(target, source, env):
             map_ofd.write("\n".join(["%s %.4d %.4d" % x for x in 
                                      sorted([("iv", gi, li) for li, (gi, tag, term) in enumerate(iv_keywords, 1)] + 
                                             [("oov", gi, li) for li, (gi, tag, term) in enumerate(oov_keywords, 1)], lambda x, y : cmp(x[1], y[1]))]))
-            w2w_ofd.write("\n".join([("0 0 %s %s 0" % (x, x)).encode("utf-8") for x in vocab if x != "VOCAB_NIL_WORD"] + ["0"]))
+            w2w_ofd.write("\n".join([("0 0 %s %s 0" % (x, x)) for x in vocab if x != "VOCAB_NIL_WORD"] + ["0"]))
             for x in keyword_xml.getiterator("kw"):
                 x.set("kwid", "KW%s-%s" % (language_id, x.get("kwid").split("-")[-1]))
             keyword_xml.write(kw_ofd) #.write(et.tostring(keyword_xml.))
@@ -436,8 +438,11 @@ def score(target, source, env):
 
     with temp_dir("kws_work") as work_dir, temp_dir("kws_out") as out_dir:
         cmd = env.subst("${F4DE}/bin/BABEL13_Scorer -XmllintBypass -sys ${SOURCE} -dbDir ${INDUS_DB} -comp %s -res %s -exp %s" % (work_dir, out_dir, args.get("EXPID", "KWS13_IBM_babel106b-v0.2g_conv-dev_BaDev_KWS_FullLP_BaseLR_NTAR_p-test-STO_1")), source=source)
+        #cmd = env.subst("${F4DE}/KWSEval/BABEL/Participants/BABEL_Scorer.pl -XmllintBypass -sys ${SOURCE} -dbDir ${INDUS_DB} -comp %s -res %s -exp %s" % (work_dir, out_dir, args.get("EXPID", "KWS13_IBM_babel106b-v0.2g_conv-dev_BaDev_KWS_FullLP_BaseLR_NTAR_p-test-STO_1")), source=source)
         stdout, stderr, success = run_command(cmd, env={"LD_LIBRARY_PATH" : env.subst("${LIBRARY_OVERLAY}"), 
-                                                        "F4DE_BASE" : env.subst(env["F4DE"])})
+                                                        "F4DE_BASE" : env.subst(env["F4DE"]),
+                                                        "PERL5LIB" : env["PERL_LIBRARIES"],
+                                                        "PATH" : ":".join([env.subst("${OVERLAY}/bin")] + os.environ["PATH"].split(":"))})
 
         if not success:
             return stderr + stdout

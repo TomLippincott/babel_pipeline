@@ -1,0 +1,24 @@
+# -------------------------------------------------
+# Attila Speech Recognition Toolkit
+# Module  : Network Construction
+# Author  : Hagen Soltau
+# Date    : 10/17/2005
+# 
+# $Id: construct.py,v 1.5 2010/09/23 15:45:01 hsoltau Exp $
+# -------------------------------------------------
+
+import user
+from attila import *
+import  dsearch, misc
+import cfg
+import os
+import os.path
+
+try:
+    os.makedirs(os.path.dirname(cfg.graph))
+except:
+    pass
+
+se = dsearch.Decoder(lmType=32)
+se.build(cfg)
+se.dnet.write(cfg.graph)
