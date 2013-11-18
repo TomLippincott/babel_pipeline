@@ -403,15 +403,24 @@ def merge_iv_oov(target, source, env):
 
 def normalize(target, source, env):
     """
+    Takes the combined IV and OOV results
+    Remove keywords not in kwlist
     NEEDS WORK!
     CONVERT TO BUILDER!
     """
     tmpfile_fid, tmpfile_name = tempfile.mkstemp()
     res_xml = et.parse(meta_open(source[0].rstr()))
-    kw_ids = set([x.get("kwid") for x in et.parse(meta_open(source[1].rstr())).getiterator("kw")])
-    bad = [x for x in res_xml.getiterator("detected_termlist") if x.get("termid") not in kw_ids]
-    for b in bad:
-        res_xml.getroot().remove(b)
+    kw_ids = {(a, b.lstrip("0")) : "%s-%s" % (a, b) for a, b in [x.split("-") for x in set([x.get("kwid") for x in et.parse(meta_open(source[1].rstr())).getiterator("kw")])]}
+    elems = [x for x in res_xml.getiterator("detected_termlist")] # if x.get("termid") not in kw_ids]
+    for e in elems:
+        a, b = e.get("termid").split("-")
+        b = b.lstrip("0")
+        if (a, b) not in kw_ids:
+            res_xml.getroot().remove(e)
+            #print kw_ids[(a, b)]
+        else:
+            #print kw_ids[(a, b)]
+            e.set("termid", kw_ids[(a, b)])
     res_xml.write(tmpfile_name)
     stdout, stderr, success = run_command(env.subst("${PYTHON} ${F4DENORMALIZATIONPY} ${SOURCE} ${TARGET}", target=target, source=tmpfile_name))
     os.remove(tmpfile_name)

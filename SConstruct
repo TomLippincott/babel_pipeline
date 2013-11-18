@@ -139,7 +139,7 @@ def run_experiment(jobs=20, default_files={}, default_directories={}, default_pa
                                                 "interval" : 120,
                                                 })])
 
-    asr_score = env.ScoreResults(pjoin(args["ASR_OUTPUT_PATH"], "ctm", "scoring", "babel102.dev.sys"), 
+    asr_score = env.ScoreResults(pjoin(args["ASR_OUTPUT_PATH"], "ctm", "scoring", "babel%s.dev.sys" % (parameters["LANGUAGE_ID"])), 
                                  [env.Value("%s.dev" % (parameters["LANGUAGE_ID"])), env.Value(os.path.abspath(pjoin(args["ASR_OUTPUT_PATH"], "ctm")))])
     env.Depends(asr_score, test)
     #return asr_score
@@ -425,4 +425,4 @@ for (language, language_id, expid), packs in env["LANGUAGES"].iteritems():
 #                                                                                          )
 #                     scores.append(submit(babelgum_rightwords_weighted_path, babelgum_rightwords_weighted_experiment, jobs=env["JOBS"]))
 
-# env.CollateResults("work/results.txt", scores)
+#env.CollateResults("work/results.txt", experiments)
