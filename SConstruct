@@ -142,7 +142,7 @@ def run_experiment(jobs=20, default_files={}, default_directories={}, default_pa
     asr_score = env.ScoreResults(pjoin(args["ASR_OUTPUT_PATH"], "ctm", "scoring", "babel102.dev.sys"), 
                                  [env.Value("%s.dev" % (parameters["LANGUAGE_ID"])), env.Value(os.path.abspath(pjoin(args["ASR_OUTPUT_PATH"], "ctm")))])
     env.Depends(asr_score, test)
-    return asr_score
+    #return asr_score
 
     #
     # KEYWORD SEARCH
@@ -311,7 +311,8 @@ for (language, language_id, expid), packs in env["LANGUAGES"].iteritems():
         oracle_text, oracle_text_words = env.CollectText([pjoin(oracle_path, x) for x in ["oracle_text.txt", "oracle_text_words.txt"]], 
                                                          [env.Dir(x) for x in glob(pjoin(data, "*/*/transcription"))])
         oracle_vocabulary = env.PronunciationsToVocabulary(pjoin(oracle_path, "oracle_vocabulary.txt"), oracle_pronunciations)
-        oracle_language_model = env.IBMTrainLanguageModel(pjoin(oracle_path, "oracle_lm.3gm.arpabo.gz"), [oracle_text, oracle_text_words, env.Value(2)])
+        oracle_language_model = env.IBMTrainLanguageModel(pjoin(oracle_path, "oracle_lm.%dgm.arpabo.gz" % (config["n"])), 
+                                                          [oracle_text, oracle_text_words, env.Value(config["n"])])
 
         #morfessor_input = env.TranscriptToMorfessor(pjoin("work", language, pack, "morfessor", "input.txt"), oracle_text)
 
