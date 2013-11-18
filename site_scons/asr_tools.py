@@ -375,7 +375,7 @@ def create_small_asr_directory_emitter(target, source, env):
     new_targets = [os.path.join(directories["CONFIGURATION_PATH"], x) for x in dlatsa]
  
     # new list of sources
-    new_sources = [env.Value(files), env.Value(directories), env.Value(parameters)] + \
+    new_sources = [env.Value({k : str(v) for k, v in files.iteritems()}), env.Value({k : str(v) for k, v in directories.iteritems()}), env.Value(parameters)] + \
         [os.path.join("data", "%s.%s" % (x, parameters["LANGUAGE_ID"])) for x in dlatsa] + \
         [p for n, p in files.iteritems()]
 

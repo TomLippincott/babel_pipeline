@@ -259,13 +259,13 @@ def run_experiment(jobs=20, default_files={}, default_directories={}, default_pa
 experiments = []
 general_run = partial(run_experiment, SAMPLING_RATE=8000, FEATURE_TYPE="plp", AC_WEIGHT=.13, MAX_ERROR=15000, USE_DISPATCHER=False)
 for (language, language_id, expid), packs in env["LANGUAGES"].iteritems():
-    for pack, locations in packs.iteritems():
+    for pack, config in packs.iteritems():
 
         model_path = pjoin(env["IBM_MODELS"], str(language_id), pack, "models")
         adapt_path = pjoin(env["IBM_MODELS"], str(language_id), pack, "adapt")
         language_pack_run = partial(general_run,
                                     jobs=env["JOBS"],
-                                    PCM_PATH=locations["data"],
+                                    PCM_PATH=config["data"],
                                     CMS_PATH=pjoin(env["IBM_MODELS"], str(language_id), pack, "adapt", "cms"),
                                     FMLLR_PATH=pjoin(env["IBM_MODELS"], str(language_id), pack, "adapt", "fmllr"),
                                     MODEL_PATH=model_path,
@@ -284,19 +284,19 @@ for (language, language_id, expid), packs in env["LANGUAGES"].iteritems():
                                     )
 
 
-        data = locations["data"]
-        locale = locations["locale"]
+        data = config["data"]
+        locale = config["locale"]
 
 
         experiments.append(language_pack_run(OUTPUT_PATH=pjoin("work", language, pack, "baseline"),
-                                             VOCABULARY_FILE=locations["vocabulary"], 
-                                             PRONUNCIATIONS_FILE=locations["pronunciations"], 
-                                             LANGUAGE_MODEL_FILE=locations["language_model"], 
-                                             DATABASE_FILE=locations["database"],
-                                             OOV_DICTIONARY=locations["oov_dictionary"],
-                                             KEYWORDS=locations["keywords"],
-                                             RTTM_FILE=locations["rttm"],
-                                             ACOUSTIC_WEIGHT=locations["acoustic_weight"],
+                                             VOCABULARY_FILE=config["vocabulary"], 
+                                             PRONUNCIATIONS_FILE=config["pronunciations"], 
+                                             LANGUAGE_MODEL_FILE=config["language_model"], 
+                                             DATABASE_FILE=config["database"],
+                                             OOV_DICTIONARY=config["oov_dictionary"],
+                                             KEYWORDS=config["keywords"],
+                                             RTTM_FILE=config["rttm"],
+                                             ACOUSTIC_WEIGHT=config["acoustic_weight"],
                                              ))
 
 
@@ -311,7 +311,7 @@ for (language, language_id, expid), packs in env["LANGUAGES"].iteritems():
         oracle_text, oracle_text_words = env.CollectText([pjoin(oracle_path, x) for x in ["oracle_text.txt", "oracle_text_words.txt"]], 
                                                          [env.Dir(x) for x in glob(pjoin(data, "*/*/transcription"))])
         oracle_vocabulary = env.PronunciationsToVocabulary(pjoin(oracle_path, "oracle_vocabulary.txt"), oracle_pronunciations)
-        oracle_language_model = env.IBMTrainLanguageModel(pjoin(oracle_path, "oracle_lm.3gm.arpabo.gz"), [oracle_text, oracle_text_words, env.Value(3)])
+        oracle_language_model = env.IBMTrainLanguageModel(pjoin(oracle_path, "oracle_lm.3gm.arpabo.gz"), [oracle_text, oracle_text_words, env.Value(2)])
 
         #morfessor_input = env.TranscriptToMorfessor(pjoin("work", language, pack, "morfessor", "input.txt"), oracle_text)
 
@@ -319,17 +319,17 @@ for (language, language_id, expid), packs in env["LANGUAGES"].iteritems():
                                              VOCABULARY_FILE=oracle_vocabulary[0],
                                              PRONUNCIATIONS_FILE=oracle_pronunciations,
                                              LANGUAGE_MODEL_FILE=oracle_language_model[0],
-                                             DATABASE_FILE=locations["database"],
-                                             OOV_DICTIONARY=locations["oov_dictionary"],
-                                             KEYWORDS=locations["keywords"],
-                                             RTTM_FILE=locations["rttm"],
-                                             ACOUSTIC_WEIGHT=locations["acoustic_weight"],
+                                             DATABASE_FILE=config["database"],
+                                             OOV_DICTIONARY=config["oov_dictionary"],
+                                             KEYWORDS=config["keywords"],
+                                             RTTM_FILE=config["rttm"],
+                                             ACOUSTIC_WEIGHT=config["acoustic_weight"],
                                              ))
 
         continue
 
         # babelgum experiments
-        for model, (probs, prons) in locations.get("babelgum", {}).iteritems():
+        for model, (probs, prons) in config.get("babelgum", {}).iteritems():
             for size in [50000]: #[5000, 10000, 50000]:
                 base_path = pjoin("work", language, pack, "babelgum_%d" % size)
                 babelgum_probabilities, babelgum_pronunciations = env.BabelGumLexicon([pjoin(base_path, x) for x in ["babelgum_%s_%d_probabilities.txt" % (model, size), 
@@ -359,10 +359,10 @@ for (language, language_id, expid), packs in env["LANGUAGES"].iteritems():
                                                          VOCABULARY_FILE=babelgum_uniform_vocabulary[0],
                                                          PRONUNCIATIONS_FILE=oracle_pronunciations,
                                                          LANGUAGE_MODEL_FILE=oracle_language_model[0],
-                                                         DATABASE_FILE=locations["database"],
-                                                         OOV_DICTIONARY=locations["oov_dictionary"],
-                                                         KEYWORDS=locations["keywords"],
-                                                         RTTM_FILE=locations["rttm"],
+                                                         DATABASE_FILE=config["database"],
+                                                         OOV_DICTIONARY=config["oov_dictionary"],
+                                                         KEYWORDS=config["keywords"],
+                                                         RTTM_FILE=config["rttm"],
                                                          ))
 
                     babelgum_uniform_experiment = env.CreateSmallASRDirectory(Dir(babelgum_uniform_path),
