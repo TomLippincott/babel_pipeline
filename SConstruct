@@ -8,6 +8,7 @@ import asr_tools
 import kws_tools
 import torque_tools
 import morfessor_tools
+import babel_tools
 
 #
 # load variable definitions from custom.py, and define them for SCons (seems like it should logically
@@ -73,7 +74,7 @@ vars.AddVariables(
 # create the actual build environment we'll be using
 #
 env = Environment(variables=vars, ENV={}, TARFLAGS="-c -z", TARSUFFIX=".tgz",
-                  tools=["default", "textfile"] + [x.TOOLS_ADD for x in [asr_tools, kws_tools, torque_tools, morfessor_tools]],
+                  tools=["default", "textfile"] + [x.TOOLS_ADD for x in [asr_tools, kws_tools, torque_tools, morfessor_tools, babel_tools]],
                   BUILDERS={"CopyFile" : Builder(action="cp ${SOURCE} ${TARGET}")}
                   )
 
@@ -118,9 +119,6 @@ def run_experiment(jobs=20, default_files={}, default_directories={}, default_pa
     #
     experiment = env.CreateSmallASRDirectory(Dir(args["ASR_OUTPUT_PATH"]), [env.Value(x) for x in [files, directories, parameters]])
 
-    if not env["HAS_TORQUE"]:
-        return experiment
-
     construct = env.SubmitJob(pjoin(args["ASR_OUTPUT_PATH"], "construct.timestamp"), 
                               [env.Value({"name" : "construct",
                                           "commands" : ["${ATTILA_PATH}/tools/attila/attila construct.py"],
@@ -139,8 +137,8 @@ def run_experiment(jobs=20, default_files={}, default_directories={}, default_pa
                                                 "interval" : 120,
                                                 })])
 
-    asr_score = env.ScoreResults(pjoin(args["ASR_OUTPUT_PATH"], "ctm", "scoring", "babel102.dev.sys"), 
-                                 [env.Value("%s.dev" % (parameters["LANGUAGE_ID"])), env.Value(os.path.abspath(pjoin(args["ASR_OUTPUT_PATH"], "ctm")))])
+    asr_score = env.ScoreResults(env.Dir(pjoin(args["ASR_OUTPUT_PATH"], "scoring")),
+                                 [env.Dir(os.path.abspath(pjoin(args["ASR_OUTPUT_PATH"], "ctm"))), files["STM_FILE"]])
     env.Depends(asr_score, test)
     return asr_score
 
@@ -296,6 +294,7 @@ for (language, language_id, expid), packs in env["LANGUAGES"].iteritems():
                                              OOV_DICTIONARY=config["oov_dictionary"],
                                              KEYWORDS=config["keywords"],
                                              RTTM_FILE=config["rttm"],
+                                             STM_FILE=config["stm"],
                                              ACOUSTIC_WEIGHT=config["acoustic_weight"],
                                              ))
 
@@ -323,56 +322,40 @@ for (language, language_id, expid), packs in env["LANGUAGES"].iteritems():
                                              OOV_DICTIONARY=config["oov_dictionary"],
                                              KEYWORDS=config["keywords"],
                                              RTTM_FILE=config["rttm"],
+                                             STM_FILE=config["stm"],
                                              ACOUSTIC_WEIGHT=config["acoustic_weight"],
                                              ))
 
-        continue
-
-        # babelgum experiments
-        for model, (probs, prons) in config.get("babelgum", {}).iteritems():
-            for size in [50000]: #[5000, 10000, 50000]:
-                base_path = pjoin("work", language, pack, "babelgum_%d" % size)
-                babelgum_probabilities, babelgum_pronunciations = env.BabelGumLexicon([pjoin(base_path, x) for x in ["babelgum_%s_%d_probabilities.txt" % (model, size), 
-                                                                                                                     "babelgum_%s_%d_pronunciations.txt" % (model, size)]], 
+        for method, (probs, prons) in config["expansions"].iteritems():
+            for size in [50000]:
+                base_path = pjoin("work", language, pack, method, str(size))
+                babelgum_probabilities, babelgum_pronunciations = env.BabelGumLexicon([pjoin(base_path, x) for x in ["expanded_%s_%d_probabilities.txt" % (method, size), 
+                                                                                                                     "expanded_%s_%d_pronunciations.txt" % (method, size)]], 
                                                                                       [probs, prons, env.Value(size)])
-                env.NoClean([babelgum_probabilities, babelgum_pronunciations])
-
-
-                babelgum_rightwords_pronunciations, babelgum_rightwords_probabilities = \
-                    env.FilterBabelGum([pjoin(base_path, "babelgum_rightwords_%d_%s.txt" % (size, x)) for x in ["pronunciations", "probabilities"]],
-                                       [babelgum_pronunciations, babelgum_probabilities, oracle_vocabulary])
-
-
-                for weight in [.1]: #[.01, .05, .1, .4]:
-                    continue
-                    # adding all babelgum vocabulary (uniform)
-                    babelgum_uniform_vocabulary, babelgum_uniform_pronunciations, babelgum_uniform_languagemodel = env.AugmentLanguageModel(
-                        [pjoin(base_path, "babelgum_uniform_%s_%d_%f_%s" % (model, size, weight, x)) for x in ["vocabulary.txt", "pronunciations.txt", "lm.3gm.arpabo.gz"]],
-                        [baseline_pronunciations, baseline_languagemodel, babelgum_pronunciations, env.Value(weight)]
+                for weight in [.1]:
+                    base_path = pjoin(base_path, "uniform=%f" % weight)
+                    babelgum_vocabulary, babelgum_pronunciations, babelgum_language_model = env.AugmentLanguageModel(
+                        [pjoin(base_path, x) for x in ["vocabulary.txt", "pronunciations.txt", os.path.basename(config["language_model"])]],
+                        [config["pronunciations"], config["language_model"], babelgum_pronunciations, env.Value(weight)]
                         )
 
-
-
-                    babelgum_uniform_path = pjoin("work", language, pack, "babelgum_uniform_%d_%f" % (size, weight))
-
-                    experiments.append(language_pack_run(OUTPUT_PATH=babelgum_uniform_path,
-                                                         VOCABULARY_FILE=babelgum_uniform_vocabulary[0],
-                                                         PRONUNCIATIONS_FILE=oracle_pronunciations,
-                                                         LANGUAGE_MODEL_FILE=oracle_language_model[0],
+                    experiments.append(language_pack_run(OUTPUT_PATH=base_path,
+                                                         VOCABULARY_FILE=babelgum_vocabulary,
+                                                         PRONUNCIATIONS_FILE=babelgum_pronunciations,
+                                                         LANGUAGE_MODEL_FILE=babelgum_language_model,
                                                          DATABASE_FILE=config["database"],
                                                          OOV_DICTIONARY=config["oov_dictionary"],
                                                          KEYWORDS=config["keywords"],
                                                          RTTM_FILE=config["rttm"],
+                                                         STM_FILE=config["stm"],
+                                                         ACOUSTIC_WEIGHT=config["acoustic_weight"],
                                                          ))
 
-                    babelgum_uniform_experiment = env.CreateSmallASRDirectory(Dir(babelgum_uniform_path),
-                                                                              experiment({"VOCABULARY_FILE" : babelgum_uniform_vocabulary.rstr(),
-                                                                                          "PRONUNCIATIONS_FILE" : babelgum_uniform_pronunciations.rstr(),
-                                                                                          "LANGUAGE_MODEL_FILE" : babelgum_uniform_languagemodel.rstr(),
-                                                                                          "OUTPUT_PATH" : babelgum_uniform_path,
-                                                                                          })
-                                                                              )
-                    scores.append(submit(babelgum_uniform_path, babelgum_uniform_experiment, jobs=env["JOBS"]))
+
+                #babelgum_rightwords_pronunciations, babelgum_rightwords_probabilities = \
+                #    env.FilterBabelGum([pjoin(base_path, "babelgum_rightwords_%d_%s.txt" % (size, x)) for x in ["pronunciations", "probabilities"]],
+                #                       [babelgum_pronunciations, babelgum_probabilities, oracle_vocabulary])
+
 
 #                     # adding all babelgum vocabulary (weighted)
 #                     babelgum_weighted_vocabulary, babelgum_weighted_pronunciations, babelgum_weighted_languagemodel = env.AugmentLanguageModel(

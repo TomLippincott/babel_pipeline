@@ -44,18 +44,21 @@ def query_files(target, source, env):
     with meta_open(source[0].rstr()) as kw_fd, meta_open(source[1].rstr()) as iv_fd:
         keyword_xml = et.parse(kw_fd)
         keywords = set([(x.get("kwid"), x.find("kwtext").text.lower()) for x in keyword_xml.getiterator("kw")])
-        vocab = Pronunciations(iv_fd).get_words()
+        #print list(keywords)[0][1].split()
+        vocab = [x.decode("utf-8") for x in Pronunciations(iv_fd).get_words()]
+        #print list(vocab)[0].split()
         #set([x.split()[1].strip().decode("utf-8") for x in iv_fd])
         iv_keywords = sorted([(int(tag.split("-")[-1]), tag, term) for tag, term in keywords if all([y in vocab for y in term.split()])])
         oov_keywords = sorted([(int(tag.split("-")[-1]), tag, term) for tag, term in keywords if any([y not in vocab for y in term.split()])])
+        print len(iv_keywords)
         language_id = source[-1].read()
         with meta_open(target[0].rstr(), "w") as iv_ofd, meta_open(target[1].rstr(), "w") as oov_ofd, meta_open(target[2].rstr(), "w") as map_ofd, meta_open(target[3].rstr(), "w") as w2w_ofd, meta_open(target[4].rstr(), "w") as kw_ofd:
             iv_ofd.write("\n".join([x[2].encode("utf-8") for x in iv_keywords]))
             oov_ofd.write("\n".join([x[2].encode("utf-8") for x in oov_keywords]))
-            map_ofd.write("\n".join(["%s %.4d %.4d" % x for x in 
+            map_ofd.write("\n".join(["%s %.5d %.5d" % x for x in 
                                      sorted([("iv", gi, li) for li, (gi, tag, term) in enumerate(iv_keywords, 1)] + 
                                             [("oov", gi, li) for li, (gi, tag, term) in enumerate(oov_keywords, 1)], lambda x, y : cmp(x[1], y[1]))]))
-            w2w_ofd.write("\n".join([("0 0 %s %s 0" % (x, x)) for x in vocab if x != "VOCAB_NIL_WORD"] + ["0"]))
+            w2w_ofd.write("\n".join([("0 0 %s %s 0" % (x.encode("utf-8"), x.encode("utf-8"))) for x in vocab if x != "VOCAB_NIL_WORD"] + ["0"]))
             for x in keyword_xml.getiterator("kw"):
                 x.set("kwid", "KW%s-%s" % (language_id, x.get("kwid").split("-")[-1]))
             keyword_xml.write(kw_ofd) #.write(et.tostring(keyword_xml.))
@@ -391,11 +394,11 @@ def merge_iv_oov(target, source, env):
     stdlist = tb.start("stdlist", {"termlist_filename" : os.path.basename(source[-1].rstr()), "indexing_time" : "", "language" : "", "index_size" : "", "system_id" : ""})
     for term_list in iv_xml.getiterator("detected_termlist"):
         p, n = term_list.get("termid").split("-")
-        term_list.set("termid", "%s-%0.4d" % (p, term_map[("iv", int(n))]))
+        term_list.set("termid", "%s-%0.5d" % (p, term_map[("iv", int(n))]))
         stdlist.append(term_list)
     for term_list in oov_xml.getiterator("detected_termlist"):
         p, n = term_list.get("termid").split("-")
-        term_list.set("termid", "%s-%0.4d" % (p, term_map[("oov", int(n))]))
+        term_list.set("termid", "%s-%0.5d" % (p, term_map[("oov", int(n))]))
         stdlist.append(term_list)
     tb.end("stdlist")
     open(target[0].rstr(), "w").write(et.tostring(tb.close()))
@@ -409,9 +412,9 @@ def normalize(target, source, env):
     tmpfile_fid, tmpfile_name = tempfile.mkstemp()
     res_xml = et.parse(meta_open(source[0].rstr()))
     kw_ids = set([x.get("kwid") for x in et.parse(meta_open(source[1].rstr())).getiterator("kw")])
-    bad = [x for x in res_xml.getiterator("detected_termlist") if x.get("termid") not in kw_ids]
-    for b in bad:
-        res_xml.getroot().remove(b)
+    #bad = [x for x in res_xml.getiterator("detected_termlist") if x.get("termid") not in kw_ids]
+    #for b in bad:
+    #    res_xml.getroot().remove(b)
     res_xml.write(tmpfile_name)
     stdout, stderr, success = run_command(env.subst("${PYTHON} ${F4DENORMALIZATIONPY} ${SOURCE} ${TARGET}", target=target, source=tmpfile_name))
     os.remove(tmpfile_name)
@@ -441,9 +444,8 @@ def score(target, source, env):
         #cmd = env.subst("${F4DE}/KWSEval/BABEL/Participants/BABEL_Scorer.pl -XmllintBypass -sys ${SOURCE} -dbDir ${INDUS_DB} -comp %s -res %s -exp %s" % (work_dir, out_dir, args.get("EXPID", "KWS13_IBM_babel106b-v0.2g_conv-dev_BaDev_KWS_FullLP_BaseLR_NTAR_p-test-STO_1")), source=source)
         stdout, stderr, success = run_command(cmd, env={"LD_LIBRARY_PATH" : env.subst("${LIBRARY_OVERLAY}"), 
                                                         "F4DE_BASE" : env.subst(env["F4DE"]),
-                                                        "PERL5LIB" : env["PERL_LIBRARIES"],
+                                                        "PERL5LIB" : env.subst("$PERL_LIBRARIES"),
                                                         "PATH" : ":".join([env.subst("${OVERLAY}/bin")] + os.environ["PATH"].split(":"))})
-
         if not success:
             return stderr + stdout
         else:
@@ -503,7 +505,7 @@ def alter_iv_oov(target, source, env):
         open(target[0].rstr(), "w").write("\n".join(new_iv_queries) + "\n")
         open(target[1].rstr(), "w").write("\n".join(new_oov_queries) + "\n")
         #open(target[2].rstr(), "w").write(open(term_map.rstr()).read())
-        open(target[2].rstr(), "w").write("\n".join(["%s %s %0.4d" % (s, on, n) for (s, n), on in sorted(new_mapping.iteritems(), lambda x, y : cmp(x[1], y[1]))]))
+        open(target[2].rstr(), "w").write("\n".join(["%s %s %0.5d" % (s, on, n) for (s, n), on in sorted(new_mapping.iteritems(), lambda x, y : cmp(x[1], y[1]))]))
         open(target[3].rstr(), "w").write(kw_file_fd.read())
         open(target[4].rstr(), "w").write("\n".join(new_w2w) + "\n0\n")
     return None

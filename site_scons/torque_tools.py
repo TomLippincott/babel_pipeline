@@ -45,25 +45,26 @@ def run_command(cmd, env={}, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stde
 
 
 def submit_job(target, source, env):
-    args = source[-1].read()
-    stdout = args.get("stdout", os.path.join(args["path"], "stdout"))
-    stderr = args.get("stderr", os.path.join(args["path"], "stderr"))
-    if not os.path.exists(stdout):
-        os.makedirs(stdout)
-    if not os.path.exists(stderr):
-        os.makedirs(stderr)
-    interval = args.get("interval", 10)
-    job = torque.Job(args.get("name", "scons"),
-                     commands=[env.subst(x) for x in args["commands"]],
-                     path=args["path"],
-                     stdout_path=stdout,
-                     stderr_path=stderr,
-                     array=args.get("array", 0),
-                     other=args.get("other", []))
-    job.submit(commit=True)
-    while job.job_id in [x[0] for x in torque.get_jobs(True)]:
-        logging.info("sleeping...")
-        time.sleep(interval)
+    if env["HAS_TORQUE"]:
+        args = source[-1].read()
+        stdout = args.get("stdout", os.path.join(args["path"], "stdout"))
+        stderr = args.get("stderr", os.path.join(args["path"], "stderr"))
+        if not os.path.exists(stdout):
+            os.makedirs(stdout)
+        if not os.path.exists(stderr):
+            os.makedirs(stderr)
+        interval = args.get("interval", 10)
+        job = torque.Job(args.get("name", "scons"),
+                         commands=[env.subst(x) for x in args["commands"]],
+                         path=args["path"],
+                         stdout_path=stdout,
+                         stderr_path=stderr,
+                         array=args.get("array", 0),
+                         other=args.get("other", []))
+        job.submit(commit=True)
+        while job.job_id in [x[0] for x in torque.get_jobs(True)]:
+            logging.info("sleeping...")
+            time.sleep(interval)
     with meta_open(target[0].rstr(), "w") as ofd:
         ofd.write(time.asctime() + "\n")
     return None

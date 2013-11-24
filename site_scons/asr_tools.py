@@ -18,9 +18,10 @@ import shutil
 import tempfile
 import codecs
 import locale
+import bisect
 import arpabo
 from arpabo import ProbabilityList, Arpabo, Pronunciations, Vocabulary
-
+from os.path import join as pjoin
 
 def meta_open(file_name, mode="r"):
     """
@@ -32,14 +33,14 @@ def meta_open(file_name, mode="r"):
         return open(file_name, mode)
 
 
-def run_command(cmd, env={}, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, data=None):
+def run_command(cmd, env={}, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, data=None, cwd=None):
     """
     Simple convenience wrapper for running commands (not an actual Builder).
     """
     if isinstance(cmd, basestring):
         cmd = shlex.split(cmd)
     logging.info("Running command: %s", " ".join(cmd))
-    process = subprocess.Popen(cmd, env=env, stdin=stdin, stdout=stdout, stderr=stderr)
+    process = subprocess.Popen(cmd, env=env, stdin=stdin, stdout=stdout, stderr=stderr, cwd=cwd)
     if data:
         out, err = process.communicate(data)
     else:
@@ -479,9 +480,72 @@ def filter_babel_gum(target, source, env):
             prob_ofd.write(prob.format())
     return None
 
-def score_results(target, source, env, for_signature):
-    return "${PYTHON_INTERPRETER} ${SCORE_SCRIPT} --sclite ${SCLITE_BINARY} ${SOURCES[0].read()} ${SOURCES[1].read()}/ &> /dev/null"
-    #return "${PYTHON_INTERPRETER} ${SCORE_SCRIPT} --indusDB ${INDUS_DB} --sclite ${SCLITE_BINARY} ${SOURCES[0].read()} ${SOURCES[1].read()}/ &> /dev/null"
+
+def score_results(target, source, env):
+    """
+    """    
+    ctm_path = source[0].rstr()
+    transcript = source[1].rstr()
+    out_path = os.path.dirname(target[0].rstr())
+
+    # Get a list of IDs from the reference.  All must appear in the CTM output
+    spkD = set()
+    with codecs.open(transcript, "rb", encoding="utf-8") as f:
+        for line in f:
+            if line.startswith(";;"):
+                continue
+            spkD.add(line.split()[0])
+
+    # skip eval data
+    isEval = re.compile("/eval/")
+
+    # Merge and clean up CTM
+    skipD = frozenset([u"~SIL", u"<s>", u"</s>", u"<HES>", u"<hes>"])
+    ctmL = []
+    for file_ in glob(pjoin(ctm_path, "*.ctm")):
+        with codecs.open(file_, "rb", encoding="utf-8") as ctmF:
+            for line in ctmF:
+                uttid, pcm, beg, dur, token = line.split()
+                if isEval.search(pcm):
+                    continue
+                token = token[:-4]
+                if token in skipD:
+                    continue
+                idx = uttid.find("#")
+                spk = uttid[:idx]
+                spkD.discard(spk)
+                ctmL.append((spk, float(beg), dur, token))
+    ctmL.sort()
+
+    # add in missing speakers
+    for spk in spkD:
+        bisect.insort(ctmL, (spk, 0.0, "0.0", "@"))
+
+    with codecs.open(pjoin(out_path, "all.ctm"), "wb", encoding="utf-8") as outF:
+        for ctm in sorted(ctmL):
+            outF.write("%s 1 %7.3f %s %s\n" % ctm)
+
+    args = {"SCLITE" : env["SCLITE_BINARY"],
+            "TRANSCRIPT" : transcript,
+            "TRANSCRIPT_FORMAT" : "stm",
+            "HYPOTHESIS" : os.path.abspath(pjoin(out_path, "all.ctm")),
+            "HYPOTHESIS_FORMAT" : "ctm",
+            "ENCODING" : "utf-8",
+            "OUTPUT_NAME" : "babel",
+            "OUTPUT_ROOT" : os.path.abspath(out_path),
+            "OUTPUT_TYPES" : "all dtl sgml",
+            }
+
+    # Run scoring
+    cmd ="%(SCLITE)s -r %(TRANSCRIPT)s %(TRANSCRIPT_FORMAT)s -O %(OUTPUT_ROOT)s -h %(HYPOTHESIS)s %(HYPOTHESIS_FORMAT)s -n %(OUTPUT_NAME)s -o %(OUTPUT_TYPES)s -e %(ENCODING)s -D -F" % args
+    out, err, success = run_command(cmd)
+    if not success:
+        return out + err
+    return None
+
+def score_emitter(target, source, env):
+    new_targets = [pjoin(target[0].rstr(), x) for x in ["babel.sys", "all.ctm", "babel.dtl", "babel.pra", "babel.raw", "babel.sgml"]]
+    return new_targets, source
 
 def collate_results(target, source, env):
     with meta_open(target[0].rstr(), "w") as ofd:
@@ -492,6 +556,7 @@ def collate_results(target, source, env):
                 spk, snt, wrd, corr, sub, dele, ins, err, serr = [re.split(r"\s+\|?\s*", l) for l in ifd if "aggregated" in l][0][1:-1]
             ofd.write("\t".join([expname, language, pack, vocab, pron, lm, sub, dele, ins, err, serr]) + "\n")
     return None
+
 
 def TOOLS_ADD(env):
     env.Append(BUILDERS = {"AppenToAttila" : Builder(action=appen_to_attila),
@@ -509,7 +574,7 @@ def TOOLS_ADD(env):
                            #"ReplaceProbabilities" : Builder(action=replace_probabilities),
                            "FilterWords" : Builder(action=filter_words),                           
                            "FilterBabelGum" : Builder(action=filter_babel_gum),
-                           "ScoreResults" : Builder(generator=score_results),
+                           "ScoreResults" : Builder(action=score_results, emitter=score_emitter),
                            "CollateResults" : Builder(action=collate_results),
                            })
                
