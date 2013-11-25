@@ -142,7 +142,7 @@ def run_experiment(jobs=20, default_files={}, default_directories={}, default_pa
                                  [env.Dir(os.path.abspath(pjoin(args["ASR_OUTPUT_PATH"], "ctm"))), files["STM_FILE"]])
 
     env.Depends(asr_score, test)
-    #return asr_score
+    return asr_score
 
     #
     # KEYWORD SEARCH
@@ -354,17 +354,35 @@ for (language, language_id, expid), packs in env["LANGUAGES"].iteritems():
                                                          ACOUSTIC_WEIGHT=config["acoustic_weight"],
                                                          ))
 
+                    baseline_pronunciations = config["pronunciations"]
+                    baseline_language_model = config["language_model"]
+                    base_path = pjoin(base_path, "weighted=%f" % weight)
+
+                    # adding all babelgum vocabulary (weighted)
+                    babelgum_weighted_vocabulary, babelgum_weighted_pronunciations, babelgum_weighted_language_model = env.AugmentLanguageModel(
+                        [pjoin(base_path, x) for x in ["vocabulary.txt", "pronunciations.txt", os.path.basename(baseline_language_model)]],
+                        [baseline_pronunciations, baseline_language_model, babelgum_pronunciations, babelgum_probabilities, env.Value(weight)]
+                        )
+
+                    experiments.append(language_pack_run(OUTPUT_PATH=base_path,
+                                                         VOCABULARY_FILE=babelgum_weighted_vocabulary,
+                                                         PRONUNCIATIONS_FILE=babelgum_weighted_pronunciations,
+                                                         LANGUAGE_MODEL_FILE=babelgum_weighted_language_model,
+                                                         DATABASE_FILE=config["database"],
+                                                         OOV_DICTIONARY=config["oov_dictionary"],
+                                                         KEYWORDS=config["keywords"],
+                                                         RTTM_FILE=config["rttm"],
+                                                         STM_FILE=config["stm"],
+                                                         ACOUSTIC_WEIGHT=config["acoustic_weight"],
+                                                         ))
+
 
                 #babelgum_rightwords_pronunciations, babelgum_rightwords_probabilities = \
                 #    env.FilterBabelGum([pjoin(base_path, "babelgum_rightwords_%d_%s.txt" % (size, x)) for x in ["pronunciations", "probabilities"]],
                 #                       [babelgum_pronunciations, babelgum_probabilities, oracle_vocabulary])
 
 
-#                     # adding all babelgum vocabulary (weighted)
-#                     babelgum_weighted_vocabulary, babelgum_weighted_pronunciations, babelgum_weighted_languagemodel = env.AugmentLanguageModel(
-#                         [pjoin(base_path, "babelgum_weighted_%s_%d_%f_%s" % (model, size, weight, x)) for x in ["vocabulary.txt", "pronunciations.txt", "lm.3gm.arpabo.gz"]],
-#                         [baseline_pronunciations, baseline_languagemodel, babelgum_pronunciations, babelgum_probabilities, env.Value(weight)]
-#                         )
+
 
 #                     babelgum_weighted_path = pjoin("work", "experiments_%d_%f" % (size, weight), language, pack, "babelgum", "babelgum", "babelgum")
 #                     babelgum_weighted_experiment = env.CreateSmallASRDirectory(Dir(babelgum_weighted_path),
