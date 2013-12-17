@@ -1,35 +1,37 @@
 import os.path
+from os.path import join as pjoin
+from glob import glob
 
-#ATTILA_PATH = "/home/tom/projects/babel_data/VT-2-5-babel"
-#BABEL_DATA = "/home/tom/projects/babel_data"
-#IBM_MODELS = "/home/tom/projects/babel_data"
+#BASE_PATH = "/home/tom/projects/babel_data"
+LORELEI_SVN = pjoin(BASE_PATH, "lorelei_svn")
+LANGUAGE_PACKS = pjoin(BASE_PATH, "language_packs")
+IBM_MODELS = pjoin(BASE_PATH, "ibm_models")
+ATTILA_PATH = pjoin(BASE_PATH, "VT-2-5-babel")
+INDUSDB_PATH = pjoin(BASE_PATH, "lorelei_resources", "IndusDB")
+VOCABULARY_EXPANSION_PATH = pjoin(BASE_PATH, "vocabulary_expansions")
+HAS_TORQUE = False
+JOBS = 100
+OVERLAY = pjoin(BASE_PATH, "local")
 
-# PYTHON_INTERPRETER = "/usr/bin/python"
-# SCLITE_BINARY = "/home/tom/"
-# SCORE_SCRIPT = "/home/tom/106/LLP/scoring.score.py"
-# INDUS_DB = "indus"
-# "LATTICE_DIRECTORY" : "/home/tom/asr_output/work/experiments/tagalog/limited/baseline/baseline/baseline/lat",
-# "DATABASE" : "/home/tom/projects/babel_data/106/LLP/segment/babel106.dev.LimitedLP.seg.v1.db", #"data/Tagalog/decode/segment/db/db.dev.auto.128-256-0.2",
-# "IV_DICTIONARY" : "data/lorelei_svn/106/FullLP/kws-resources/kws-resources-IndusDB.20130502/dict.IV.v2w.gz",
-# "OOV_DICTIONARY" : "data/lorelei_svn/106/FullLP/kws-resources/kws-resources-IndusDB.20130502/dict.OOV.v2p",
-# "RTTM_FILE" : "${BABEL_RESOURCES}/IndusDB/babel106b-v0.2g_conv-dev/babel106b-v0.2g_conv-dev.rttm",
-# "KW_FILE" : "${BABEL_RESOURCES}/IndusDB/babel106b-v0.2g_conv-dev.kwlist.xml",
-# "JOBS" : 3,
-# "LANGUAGE_ID" : "106",
+LANGUAGES = {}
+for name, id, big_id, acoustic_weight, locale in [
+    #("cantonese", 101, None),
+    ("assamese", 102, None, 0.09, "as_IN.utf8"),
+    ("bengali", 103, None, None, None),
+    ("pashto", 104, None, None, None),
+    ("turkish", 105, None, None, None),
+    ("tagalog", 106, None, 0.13, "tl_PH.utf8"), 
+    #("vietnamese", 107, None), 
+    #("haitian_creole", 201, None, None, None),    
+    ("zulu", 206, None, None, None),    
+    ]:
 
+    if big_id == None:
+        big_id = "KWS13_IBM_babel%db-v0.4_conv-dev_BaDev_KWS_LimitedLP_BaseLR_NTAR_p-test-STO_1" % (id)
 
-
-
-# LANGUAGES = {
-#     ("tagalog", 106) : {
-#         "limited" : {
-#             "keywords" : "${BABEL_RESOURCES}/IndusDB/babel106b-v0.2g_conv-dev.kwlist.xml",
-#             "data" : os.path.join(BABEL_DATA, "106-Delivery-Tagalog-v0.2g"),
-#             "models" : os.path.join(IBM_MODELS, "106", "LLP"),
-#             "locale" : "tl_PH.utf8",
-#             "babelgum" : {
-#                 "basic" : ("data/tagalog-llp-basic-probabilities.gz", "data/tagalog-llp-basic-pronunciations.gz"),
-#                 }
-#             }
-#         }
-#     }
+    LANGUAGES[(name, id, big_id)] = {        
+        "LANGUAGE_ID" : id,
+        "BIG_ID" : big_id,
+        "LOCALE" : locale,
+        "ACOUSTIC_WEIGHT" : acoustic_weight,
+        }
