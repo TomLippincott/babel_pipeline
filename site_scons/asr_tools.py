@@ -20,8 +20,11 @@ import codecs
 import locale
 import bisect
 import arpabo
-from arpabo import ProbabilityList, Arpabo, Pronunciations, Vocabulary
+from arpabo import ProbabilityList, Arpabo, Pronunciations, Vocabulary, FrequencyList
+from common_tools import Probability
 from os.path import join as pjoin
+from matplotlib import pyplot
+import numpy
 
 def meta_open(file_name, mode="r"):
     """
@@ -232,27 +235,30 @@ def augment_language_model(target, source, env):
     Output: new language model, new vocab, new pronunciations
     """
     from arpabo import Arpabo, Pronunciations
-    if len(source) == 4:
-        old_prons = Pronunciations(meta_open(source[0].rstr()))
-        old_lm = Arpabo(meta_open(source[1].rstr()))
-        new_prons = Pronunciations(meta_open(source[2].rstr()))
-        mass = source[3].read()
-    elif len(source) == 5:
-        old_prons = Pronunciations(meta_open(source[0].rstr()))
-        old_lm = Arpabo(meta_open(source[1].rstr()))
-        new_prons = Pronunciations(meta_open(source[2].rstr()))
-        new_probs = arpabo.ProbabilityList(meta_open(source[3].rstr()))
-        mass = source[4].read()
+
+    weighted = len(source) == 5
+        
+
+    old_prons = Pronunciations(meta_open(source[0].rstr()))
+    old_lm = Arpabo(meta_open(source[1].rstr()))
+    new_prons = Pronunciations(meta_open(source[2].rstr()))
+    mass = source[-1].read()
 
     logging.info("Old LM: %s", old_lm)
     logging.info("Old Pronunciations: %s", old_prons)
     logging.info("Words to add: %s", new_prons)
 
+    if weighted:
+        new_probs = arpabo.ProbabilityList(meta_open(source[3].rstr()))
+        logging.info("Words to add (probabilities): %s", new_probs)
+
+
     old_prons.add_entries(new_prons)
-    if len(source) == 4:
-        old_lm.add_unigrams(new_prons.get_words(), mass)
-    else:
+    if weighted:
         old_lm.add_unigrams_with_probs(new_probs, mass)
+    else:
+        old_lm.add_unigrams(new_prons.get_words(), mass)
+
     logging.info("New Pronunciations: %s", old_prons)
     logging.info("New LM: %s", old_lm)
     logging.info("New words have weight %s", old_lm.get_probability_of_words(new_prons.get_words()))
@@ -333,7 +339,7 @@ def collect_text(target, source, env):
     return None
 
 
-def create_small_asr_directory(target, source, env):
+def create_asr_experiment(target, source, env):
 
     # the first three sources are the original configuration dictionaries
     files, directories, parameters = [x.read() for x in source[:3]]
@@ -356,13 +362,15 @@ def create_small_asr_directory(target, source, env):
     for template, final in zip(templates, target):
         with open(template.rstr()) as ifd, open(final.rstr(), "w") as ofd:
             ofd.write(scons_subst(ifd.read(), env=env, lvars=config))
+
     return None
 
 
-def create_small_asr_directory_emitter(target, source, env):
+def create_asr_experiment_emitter(target, source, env):
 
-    # start with three configuration dictionaries
+    # start with three configuration dictionaries    
     files, directories, parameters = [x.read() for x in source]
+
     directories["CONFIGURATION_PATH"] = target[0].rstr()
 
     # create a dependency on each file passed in
@@ -372,9 +380,11 @@ def create_small_asr_directory_emitter(target, source, env):
     # all templates
     dlatsa = ["cfg.py", "construct.py", "test.py"]
 
+    new_sources, new_targets = [], []
+
     # new list of targets
-    new_targets = [os.path.join(directories["CONFIGURATION_PATH"], x) for x in dlatsa]
- 
+    new_targets = [pjoin(directories["CONFIGURATION_PATH"], x) for x in dlatsa]
+
     # new list of sources
     new_sources = [env.Value({k : str(v) for k, v in files.iteritems()}), env.Value({k : str(v) for k, v in directories.iteritems()}), env.Value(parameters)] + \
         [os.path.join("data", "%s.%s" % (x, parameters["LANGUAGE_ID"])) for x in dlatsa] + \
@@ -558,8 +568,140 @@ def collate_results(target, source, env):
     return None
 
 
+def plot_probabilities(target, source, env):
+    p = ProbabilityList(meta_open(source[0].rstr()))
+    ps = sorted([x.prob() for x in p.values()])
+    pyplot.plot(ps)
+    pyplot.savefig(target[0].rstr())
+    return None
+
+def split_expansion(target, source, env):
+    if len(source) == 2:
+        limit = source[1].read()
+    else:
+        limit = 0
+    words = {}
+    with meta_open(source[0].rstr()) as ifd:
+        for l in ifd:
+            toks = l.split("\t")
+            assert(len(toks) == len(target) + 1)
+            words[toks[0]] = [Probability(neglogprob=float(x)) for x in toks[1:]]
+    for i, f in enumerate(target):
+        with meta_open(f.rstr(), "w") as ofd:
+            vals = [(z[0], -z[1][i].log()) for z in sorted(words.iteritems(), lambda x, y : cmp(y[1][i].log(), x[1][i].log()))]
+            if limit > 0:
+                vals = vals[0:limit]
+            ofd.write("\n".join(["%s\t%f" % (w, p) for w, p in vals]))
+    return None
+
+def split_expansion_emitter(target, source, env):
+    new_targets = [pjoin(env["BASE_PATH"], "%s.gz" % x) for x in ["morph", "lm", "lm_avg", "lm_morph"]]
+    return new_targets, source
+
+def transcripts_to_vocabulary(target, source, env):
+    word_counts = arpabo.FrequencyList()
+    for fname in source:
+        with meta_open(fname.rstr()) as ifd:
+            for line in [x for x in ifd if not re.match(r"^\[.*\]\s*", x)]:
+                for tok in line.split():
+                    word_counts[tok] = word_counts.get(tok, 0) + 1
+    with meta_open(target[0].rstr(), "w") as ofd:
+        ofd.write(word_counts.format())
+    return None
+
+def plot_reduction(target, source, env):
+    args = source[-1].read()
+    bins = args["bins"]
+    with meta_open(source[-3].rstr()) as in_voc_fd, meta_open(source[-2].rstr()) as all_voc_fd:
+        in_vocabulary = FrequencyList(in_voc_fd).make_conservative()
+        all_vocabulary = FrequencyList(all_voc_fd).make_conservative().join(in_vocabulary)
+        out_of_vocabulary = set([x for x in all_vocabulary.keys() if x not in in_vocabulary])
+        num_iv_types = len(in_vocabulary)
+        num_iv_tokens = sum([all_vocabulary.get(x, 0) for x in in_vocabulary])
+        num_types = len(all_vocabulary)
+        num_tokens = sum(all_vocabulary.values())
+        num_oov_types = num_types - num_iv_types
+        num_oov_tokens = num_tokens - num_iv_tokens
+        logging.info("%d/%d in-vocabulary types", num_iv_types, num_types)
+        logging.info("%d/%d in-vocabulary tokens", num_iv_tokens, num_tokens)
+        pyplot.figure(figsize=(8 * 2, 7))
+        for expansion_fname in source[0:-3]:
+            good_tokens = 0
+            good_types = 0
+            token_based = numpy.empty(shape=(bins + 1))
+            type_based = numpy.empty(shape=(bins + 1))
+            token_based[0] = float(0.0)
+            type_based[0] = float(0.0)
+            name = {"morph" : "just Morfessor",
+                    "lm" : "reranking by ngrams",
+                    "lm_avg" : "reranking by ngram average",
+                    "lm_morph" : "reranking by boundary-ngrams",
+                    }[os.path.splitext(os.path.basename(expansion_fname.rstr()))[0]]            
+            method = os.path.dirname(expansion_fname.rstr()).split("/")[-1]
+            name = "%s - %s" % (method, name)
+
+            with meta_open(expansion_fname.rstr()) as expansion_fd:
+                expansions = [(w, p) for w, p in [x.strip().split() for x in expansion_fd]]
+                bin_size = len(expansions) / bins
+                for i in range(bins):
+                    correct = [x for x in expansions[i*bin_size:(i+1)*bin_size] if x[0] in all_vocabulary]
+                    good_types += len(correct)
+                    good_tokens += sum([all_vocabulary.get(x[0], 0) for x in correct])
+                    type_based[i + 1] = good_types
+                    token_based[i + 1] = good_tokens
+                logging.info("%d recovered types", good_types)
+                logging.info("%d recovered tokens", good_tokens)
+            pyplot.subplot(1, 2, 1)
+            pyplot.plot(type_based, label=name)
+            pyplot.subplot(1, 2, 2)
+            pyplot.plot(token_based, label=name)
+
+        pyplot.subplot(1, 2, 1)
+        pyplot.title("Type-based")
+        pyplot.xlabel("Expansion threshold (in 1000s of words)")        
+        pyplot.ylabel("%% OOV reduction/IV increase (%d initially OOV types)" % (num_oov_types))
+        pyplot.legend(loc="lower right", fontsize=10)
+        pyplot.xticks([x * bin_size for x in range(11)], [(x * bin_size) / 10 for x in range(11)])
+        yinc = float(type_based.max()) / 9
+        pyplot.yticks([x * yinc for x in range(10)], ["%d/%d" % (int(100 * x * yinc / float(num_oov_types)), int(100 * x * yinc / float(num_iv_types))) for x in range(10)], fontsize=8)
+        pyplot.grid()
+
+        pyplot.subplot(1, 2, 2)
+        pyplot.title("Token-based")
+        pyplot.xlabel("Expansion threshold (in 1000s of words)")
+        pyplot.ylabel("%% OOV reduction/IV increase (%d initially OOV tokens)" % (num_oov_tokens))
+        pyplot.legend(loc="lower right", fontsize=10)
+        pyplot.xticks([x * bin_size for x in range(11)], [(x * bin_size) / 10 for x in range(11)])
+        yinc = float(token_based.max()) / 9
+        pyplot.yticks([x * yinc for x in range(10)], ["%d/%d" % (int(100 * x * yinc / float(num_oov_tokens)), int(100 * x * yinc / float(num_iv_tokens))) for x in range(10)], fontsize=8)
+        pyplot.grid()
+
+        pyplot.savefig(target[0].rstr())
+        pyplot.cla()
+        pyplot.clf()
+    return None
+
+def plot_reduction_emitter(target, source, env):
+    args = source[-1].read()
+    new_targets = pjoin(os.path.dirname(source[0].rstr()), "%d_reduction.png" % (args["bins"]))
+    return new_targets, source
+
+def plot_unigram_probabilities(target, source, env):
+    return None
+
+def split_train_dev(target, source, env):
+    data_path = source[0].rstr()
+    for type, out_fname in zip(["training", "sub-train", "dev"], target):
+        with meta_open(out_fname.rstr(), "w") as ofd:
+            for in_fname in env.Glob(pjoin(data_path, "*", type, "transcription", "*")):
+                with meta_open(in_fname.rstr()) as ifd:
+                    ofd.write(ifd.read())
+    return None
+
+
 def TOOLS_ADD(env):
-    env.Append(BUILDERS = {"AppenToAttila" : Builder(action=appen_to_attila),
+    env.Append(BUILDERS = {"SplitTrainDev" : Builder(action=split_train_dev),
+                           "AppenToAttila" : Builder(action=appen_to_attila),
                            "PronunciationsToVocabulary" : Builder(action=pronunciations_to_vocabulary),
                            "IBMTrainLanguageModel" : Builder(action=ibm_train_language_model),
                            "MissingVocabulary" : Builder(action=missing_vocabulary),
@@ -567,7 +709,6 @@ def TOOLS_ADD(env):
                            #"AugmentLanguageModelFromBabel" : Builder(action=augment_language_model_from_babel),
                            "TranscriptVocabulary" : Builder(action=transcript_vocabulary),
                            "TrainPronunciationModel" : Builder(action=train_pronunciation_model),
-                           "CreateSmallASRDirectory" : Builder(action=create_small_asr_directory, emitter=create_small_asr_directory_emitter),
                            "CollectText" : Builder(action=collect_text),
                            "BabelGumLexicon" : Builder(action=babelgum_lexicon),
                            "ReplacePronunciations" : Builder(action=replace_pronunciations),
@@ -576,5 +717,13 @@ def TOOLS_ADD(env):
                            "FilterBabelGum" : Builder(action=filter_babel_gum),
                            "ScoreResults" : Builder(action=score_results, emitter=score_emitter),
                            "CollateResults" : Builder(action=collate_results),
+                           "SplitExpansion" : Builder(action=split_expansion, emitter=split_expansion_emitter),
+                           "PlotProbabilities" : Builder(action=plot_probabilities),
+                           "PlotReduction" : Builder(action=plot_reduction, emitter=plot_reduction_emitter),
+                           "PlotUnigramProbabilities" : Builder(action=plot_unigram_probabilities),
+                           "TranscriptsToVocabulary" : Builder(action=transcripts_to_vocabulary),
+
+                           "CreateASRExperiment" : Builder(action=create_asr_experiment, emitter=create_asr_experiment_emitter),
+                           #"RunASRExperiment" : Builder(action=run_asr_experiment, emitter=run_asr_experiment_emitter),
                            })
                

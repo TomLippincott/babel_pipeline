@@ -4,7 +4,7 @@
 # Author  : Hagen Soltau
 # Date    : 10/17/2005
 # 
-# $Id: construct.py,v 1.5 2010/09/23 15:45:01 hsoltau Exp $
+# Id: construct.py,v 1.5 2010/09/23 15:45:01 hsoltau Exp 
 # -------------------------------------------------
 
 import user
