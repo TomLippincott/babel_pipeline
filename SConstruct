@@ -350,7 +350,10 @@ for (language, language_id, expid), config in env["LANGUAGES"].iteritems():
 
             adapt_path = env.Dir(pjoin(env["IBM_MODELS"], str(language_id), pack, "adapt"))
             warp_file = env.File(pjoin(adapt_path.rstr(), "warp.lst"))
-
+            stm_file = env.Glob(pjoin(env["INDUSDB_PATH"], "babel%d*" % (language_id), "*stm"))[0]
+            rttm_file = env.Glob(pjoin(env["INDUSDB_PATH"], "babel%d*" % (language_id), "*dev.rttm"))[0]
+            keywords = env.Glob(pjoin(env["INDUSDB_PATH"], "babel%d*conv-dev.kwlist.xml" % (language_id)))[0]
+            oov_dict = env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "kws-resources", "kws-resources*", "dict.OOV.v2p"))[0]
             language_pack_run = partial(general_run,
                                         jobs=env["JOBS"],
                                         PCM_PATH=data_path,
@@ -370,42 +373,38 @@ for (language, language_id, expid), config in env["LANGUAGES"].iteritems():
                                         LANGUAGE_ID=str(language_id),
                                         EXPID=expid,
                                         DATABASE_FILE=segmentation_file,
-                                        #config["DATABASE_FILE"],
-                                        #GRAPH_OFILE=
-                                        #RTTM_FILE=config["rttm"],
-                                        #STM_FILE=config["stm"],
                                         ACOUSTIC_WEIGHT=config["ACOUSTIC_WEIGHT"],
-                                        #KEYWORDS=config["keywords"],
-                                        #OOV_DICTIONARY=config["oov_dictionary"],
+                                        RTTM_FILE=rttm_file,
+                                        STM_FILE=stm_file,
+                                        KEYWORDS=keywords,
+                                        OOV_DICTIONARY=oov_dict,
                                         )
-
-
+        
         experiments.append(language_pack_run(OUTPUT_PATH=pjoin("work", language, pack, "baseline"),
                                              VOCABULARY_FILE=limited_vocabulary_file, 
                                              PRONUNCIATIONS_FILE=limited_pronunciations_file,
                                              LANGUAGE_MODEL_FILE=limited_language_model_file, 
                                              ))
 
-        # #continue
-        # # triple-oracle experiment (weighted)
-        # exp_path = pjoin("work", language, pack, "triple_oracle")
-        # oracle_pronunciations, oracle_pnsp, oracle_tags = env.AppenToAttila([pjoin(exp_path, x) for x in 
-        #                                                                      ["oracle_pronunciations.txt", "oracle_pnsp.txt", "oracle_tags.txt"]],
-        #                                                                     [pjoin(data_path.rstr(), "conversational", "reference_materials", "lexicon.txt"),
-        #                                                                      pjoin(data_path.rstr(), "scripted", "reference_materials", "lexicon.txt"),
-        #                                                                      env.Value(locale)])
+        # triple-oracle experiment (weighted)
+        exp_path = pjoin("work", language, pack, "triple_oracle")
+        oracle_pronunciations, oracle_pnsp, oracle_tags = env.AppenToAttila([pjoin(exp_path, x) for x in 
+                                                                             ["oracle_pronunciations.txt", "oracle_pnsp.txt", "oracle_tags.txt"]],
+                                                                            [pjoin(data_path.rstr(), "conversational", "reference_materials", "lexicon.txt"),
+                                                                             pjoin(data_path.rstr(), "scripted", "reference_materials", "lexicon.txt"),
+                                                                             env.Value(locale)])
 
-        # oracle_text, oracle_text_words = env.CollectText([pjoin(exp_path, x) for x in ["oracle_text.txt", "oracle_text_words.txt"]], 
-        #                                                  [env.Dir(x) for x in glob(pjoin(data_path.rstr(), "*/*/transcription"))])
-        # oracle_vocabulary = env.PronunciationsToVocabulary(pjoin(exp_path, "oracle_vocabulary.txt"), oracle_pronunciations)
-        # oracle_language_model = env.IBMTrainLanguageModel(pjoin(exp_path, "oracle_lm.%dgm.arpabo.gz" % (markov)), 
-        #                                                   [oracle_text, oracle_text_words, env.Value(markov)])
+        oracle_text, oracle_text_words = env.CollectText([pjoin(exp_path, x) for x in ["oracle_text.txt", "oracle_text_words.txt"]], 
+                                                         [env.Dir(x) for x in glob(pjoin(data_path.rstr(), "*/*/transcription"))])
+        oracle_vocabulary = env.PronunciationsToVocabulary(pjoin(exp_path, "oracle_vocabulary.txt"), oracle_pronunciations)
+        oracle_language_model = env.IBMTrainLanguageModel(pjoin(exp_path, "oracle_lm.%dgm.arpabo.gz" % (markov)), 
+                                                          [oracle_text, oracle_text_words, env.Value(markov)])
 
-        # experiments.append(language_pack_run(OUTPUT_PATH=exp_path,
-        #                                      VOCABULARY_FILE=oracle_vocabulary[0],
-        #                                      PRONUNCIATIONS_FILE=oracle_pronunciations,
-        #                                      LANGUAGE_MODEL_FILE=oracle_language_model[0],
-        #                                      ))
+        experiments.append(language_pack_run(OUTPUT_PATH=exp_path,
+                                             VOCABULARY_FILE=oracle_vocabulary[0],
+                                             PRONUNCIATIONS_FILE=oracle_pronunciations,
+                                             LANGUAGE_MODEL_FILE=oracle_language_model[0],
+                                             ))
 
         # continue        
         # #experiments.append(language_pack_run(OUTPUT_PATH=exp_path,
