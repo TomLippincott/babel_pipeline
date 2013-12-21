@@ -56,7 +56,7 @@ vars.AddVariables(
     # these variables all have default definitions in terms of the previous, but may be overridden as needed
     ("PYTHON", "", "/usr/bin/python"),
     ("PERL", "", "/usr/bin/perl"),
-    ("PERL_LIBRARIES", "", os.environ.get("PERL5LIB")),
+    ("PERL_LIBRARIES", "", os.environ.get("PERL5LIB", "")),
     ("BABEL_BIN_PATH", "", "${BABEL_REPO}/tools/kws/bin64"),
     ("BABEL_SCRIPT_PATH", "", "${BABEL_REPO}/tools/kws/bin64"),
     ("F4DE", "", "${BABEL_RESOURCES}/F4DE"),
@@ -156,6 +156,7 @@ def run_experiment(jobs=20, default_files={}, default_directories={}, default_pa
         env.Depends(asr_score, test)
         return asr_score
     else:
+        #asr_score = env.File(pjoin(args["ASR_OUTPUT_PATH"], "scoring", "babel.sys"))
         return experiment
     #
     # KEYWORD SEARCH
@@ -309,8 +310,9 @@ for (language, language_id, expid), config in env["LANGUAGES"].iteritems():
                                          "morfessor_input" : morfessor_input,
                                          }
 
+    results[(language, "Limited")] = {}
+    #continue
     if os.path.exists(pjoin(env["IBM_MODELS"], str(language_id))):
-        results[(language, "Limited")] = {}
 
         #full_pronunciations_file = env.File(pjoin(env["LORELEI_SVN"], str(language_id), "FullLP", "models", "dict.test"))
         limited_pronunciations_file = env.File(pjoin(env["LORELEI_SVN"], str(language_id), "LimitedLP", "models", "dict.test"))
@@ -319,23 +321,6 @@ for (language, language_id, expid), config in env["LANGUAGES"].iteritems():
         limited_language_model_file = env.Glob(pjoin(env["IBM_MODELS"], str(language_id), "LLP", "models", "lm.*"))[0]
 
         markov = int(re.match(r".*lm\.(\d+)gm.*", limited_language_model_file.rstr()).group(1))
-
-    #10000 16 bits asr_results = env.RunASR([], env.Value(config), BASE_PATH=pjoin("work", "experiments", language, "Limited", "baseline", "asr"))
-    #kws_results = env.RunKWS(asr_results, BASE_PATH=pjoin("work", "experiments", language, "Limited", "baseline", "kws"))
-    #asr_experiment = env.CreateASRExperiment(Dir(pjoin("work", "experiments", language, "Limited")),
-    #                                         env.Value(config))
-                                             #[env.Value(x) for x in [files, directories, parameters]])
-
-    #all_voc = env.AllVocabulary(pjoin("work", "expansions", language, "full_all_vocab.gz"), all_transcripts)
-    #full_training_vocabulary = env.AllVocabulary(pjoin("work", "expansions", language, "full_training_vocabulary.gz"), full_training_transcripts)
-    #limited_training_vocabulary = env.AllVocabulary(pjoin("work", "expansions", language, "limited_training_vocabulary.gz"), limited_training_transcripts)
-
-    #for source, (full, limited) in [(x[0], (env.File(x[1][0]), env.File(x[1][1]))) for x in config["EXPANSIONS"].iteritems()]:
-    #    full_expansions = env.SplitExpansion([full, env.Value(100000)], BASE_PATH=pjoin("work", "expansions", language, source, "full"))
-    #    limited_expansions = env.SplitExpansion([limited, env.Value(100000)], BASE_PATH=pjoin("work", "expansions", language, source, "limited"))
-    #    figures[(language, source, "Limited")] = env.PlotReduction(limited_expansions + [limited_pronunciations_file, all_voc, env.Value({"bins" : 1000})])
-    #    figures[(language, source, "Full")] = env.PlotReduction(full_expansions + [full_pronunciations_file, all_voc, env.Value({"bins" : 1000})])
-    #continue
 
         for pack in ["LLP"]:
             baseline_pronunciations = env.File(pjoin(env["IBM_MODELS"], str(language_id), "models", "dict.test")) #config["pronunciations"]
@@ -376,15 +361,20 @@ for (language, language_id, expid), config in env["LANGUAGES"].iteritems():
                                         ACOUSTIC_WEIGHT=config["ACOUSTIC_WEIGHT"],
                                         RTTM_FILE=rttm_file,
                                         STM_FILE=stm_file,
-                                        KEYWORDS=keywords,
-                                        OOV_DICTIONARY=oov_dict,
+                                        KEYWORDS_FILE=keywords,
+                                        OOV_DICTIONARY_FILE=oov_dict,
                                         )
         
-        experiments.append(language_pack_run(OUTPUT_PATH=pjoin("work", language, pack, "baseline"),
+        # baseline experiment
+        baseline_results = language_pack_run(OUTPUT_PATH=pjoin("work", language, pack, "baseline"),
                                              VOCABULARY_FILE=limited_vocabulary_file, 
                                              PRONUNCIATIONS_FILE=limited_pronunciations_file,
                                              LANGUAGE_MODEL_FILE=limited_language_model_file, 
-                                             ))
+                                             )
+
+        #results[(language, "Limited")]["Baseline"] = {"ASR" : env.File(pjoin("work", language, pack, "baseline", "asr", "scoring", "babel.sys")), 
+        #                                              "KWS" : env.File(pjoin("work", language, pack, "baseline", "kws", "output", "Ensemble.AllOccur.results.txt")),
+        #                                              }
 
         # triple-oracle experiment (weighted)
         exp_path = pjoin("work", language, pack, "triple_oracle")
@@ -392,7 +382,7 @@ for (language, language_id, expid), config in env["LANGUAGES"].iteritems():
                                                                              ["oracle_pronunciations.txt", "oracle_pnsp.txt", "oracle_tags.txt"]],
                                                                             [pjoin(data_path.rstr(), "conversational", "reference_materials", "lexicon.txt"),
                                                                              pjoin(data_path.rstr(), "scripted", "reference_materials", "lexicon.txt"),
-                                                                             env.Value(locale)])
+                                                                             env.Value({"LOCALE" : locale, "SKIP_ROMAN" : config["SKIP_ROMAN"]})])
 
         oracle_text, oracle_text_words = env.CollectText([pjoin(exp_path, x) for x in ["oracle_text.txt", "oracle_text_words.txt"]], 
                                                          [env.Dir(x) for x in glob(pjoin(data_path.rstr(), "*/*/transcription"))])
@@ -400,11 +390,25 @@ for (language, language_id, expid), config in env["LANGUAGES"].iteritems():
         oracle_language_model = env.IBMTrainLanguageModel(pjoin(exp_path, "oracle_lm.%dgm.arpabo.gz" % (markov)), 
                                                           [oracle_text, oracle_text_words, env.Value(markov)])
 
-        experiments.append(language_pack_run(OUTPUT_PATH=exp_path,
+        oracle_results = language_pack_run(OUTPUT_PATH=exp_path,
                                              VOCABULARY_FILE=oracle_vocabulary[0],
                                              PRONUNCIATIONS_FILE=oracle_pronunciations,
                                              LANGUAGE_MODEL_FILE=oracle_language_model[0],
-                                             ))
+                                             PHONE_FILE=oracle_pnsp,
+                                             )
+
+        #results[(language, "Limited")]["Oracle"] = {"ASR" : env.File(pjoin("work", language, pack, "triple_oracle", "asr", "scoring", "babel.sys")), 
+        #                                            "KWS" : env.File(pjoin("work", language, pack, "triple_oracle", "kws", "output", "Ensemble.AllOccur.results.txt")),
+        #                                            }
+
+
+        # babelgum experiments
+        #for size in [50000]:
+            #for expansion in limited_basic_expansions[1]:
+            #    pass
+
+            #for expansion in limited_bigram_expansions:
+            #    pass
 
         # continue        
         # #experiments.append(language_pack_run(OUTPUT_PATH=exp_path,

@@ -60,10 +60,21 @@ def pronunciations_to_vocabulary(target, source, env):
         ofd.write(d.format_vocabulary())
     return None
 
+def appen_to_attila_old(target, source, env, for_signature):
+    pron, pnsp, tag = target
+    lexicons = source[0:-1]
+    args = source[-1].read()
+    base = "python data/makeBaseDict.py -d %s -p %s -t %s -l %s" % (pron, pnsp, tag, args["LOCALE"])
+    if args.get("SKIP_ROMAN", False):
+        base += " -s"
+    return "%s %s" % (base, " ".join([x.rstr() for x in lexicons]))
+
 
 def appen_to_attila(target, source, env):
+    args = source[-1].read()
+
     # set the locale for sorting and getting consistent case
-    locale.setlocale(locale.LC_ALL, source[-1].read())
+    locale.setlocale(locale.LC_ALL, args.get("LOCALE", "utf-8"))
 
     # convert BABEL SAMPA pronunciations to attila format
     #
@@ -116,8 +127,8 @@ def appen_to_attila(target, source, env):
             for line in f:
                 pronL = line.strip().split(u'\t')
                 token = pronL.pop(0).lower()
-                #if cfg.skipRoman:
-                #    pronL.pop(0)
+                if args.get("SKIP_ROMAN", False):
+                    pronL.pop(0)
                 if token == '<hes>':
                     token = '<HES>'
                 prons = voc.setdefault(token, set())
@@ -133,9 +144,9 @@ def appen_to_attila(target, source, env):
     # write the pronunciations, and collect the phone set
     with open(odict, 'w') as f:
         for token in sorted(voc.iterkeys(),key=collate):
-            for pronX, pron in enumerate(voc[token]):
+            for pronX, pron in enumerate([x for x in voc[token]]):
                 f.write("%s(%02d) %s\n" % (token.encode('utf-8'), 1+pronX, pron))
-
+                
         for elt in nonlex:
             token = elt[0]
             for pronX, pron in enumerate(elt[1]):

@@ -96,7 +96,7 @@ def build_site(target, source, env):
             xml.start("td", {})
             xml.start("table", {"border" : "1"})
             #xml.start("tr", {}), [(xml.start("td", {}), xml.data(x), xml.end("td")) for x in ["Pack", "Vocabulary size"]], xml.end("tr")
-            xml.start("tr", {}), xml.start("td", {}), xml.end("td"), xml.start("td", {}), xml.data("Count"), xml.end("td"), xml.start("td", {}), xml.data("Average size"), xml.end("td"), xml.end("tr")
+            xml.start("tr", {}), xml.start("td", {}), xml.end("td"), xml.start("td", {}), xml.data("Count"), xml.end("td"), xml.start("td", {}), xml.data("Average length"), xml.end("td"), xml.end("tr")
             xml.start("tr", {}), xml.start("td", {}), xml.data("Limited vocab"), xml.end("td"), xml.start("td", {}), xml.data("%d" % (lim_vocab_size)), xml.end("td"), xml.start("td", {}), xml.data("%.2f" % (avg_len_lim_vocab)), xml.end("td"), xml.end("tr")
             xml.start("tr", {}), xml.start("td", {}), xml.data("Dev vocab"), xml.end("td"), xml.start("td", {}), xml.data("%d" % (dev_vocab_size)), xml.end("td"), xml.start("td", {}), xml.data("%.2f" % (avg_len_dev_vocab)), xml.end("td"), xml.end("tr")
             
@@ -160,20 +160,16 @@ def build_site(target, source, env):
             # word error rate for ASR and maximum term-weighted value for KWS
             xml.start("tr", {}), xml.start("td", {}), xml.start("h3", {}), xml.data("Extrinsic performance evaluation"), xml.end("h3"), xml.end("td"), xml.end("tr")
             xml.start("tr", {}), xml.start("td", {}), xml.start("table", {"border" : "1"})
-            xml.start("tr", {}), [(xml.start("td", {}), xml.data(x), xml.end("td")) for x in ["Augmentation", "Error", "Substitutions", "Deletions", "Insertions", "PMiss", "ATWV", "PMiss", "MTWV"]], xml.end("tr")
-            #for name, values in results[(language, "Limited")]:
-            #    xml.start("tr", {}), [(xml.start("td", {}), xml.data(x), xml.end("td")) for x in ["Augmentation", "Error", "Substitutions", "Deletions", "Insertions", "PMiss", "ATWV", "PMiss", "MTWV"]], xml.end("tr")
-            #    pass
-            # for name, values in [(lookup[x[0]], x[1]) for x in sorted(morf_output.morphs.iteritems())]:
-            #     if len(values) > 0:
-            #         avg_len = "%.2f" % (sum(map(len, values)) / float(len(values)))
-            #     else:
-            #         avg_len = ""
-            #     xml.start("tr", {})
-            #     xml.start("td", {}), xml.data(name), xml.end("td")
-            #     xml.start("td", {}), xml.data(str(len(values))), xml.end("td")
-            #     xml.start("td", {}), xml.data(avg_len), xml.end("td")
-            #     xml.end("tr")
+            xml.start("tr", {}), [(xml.start("td", {}), xml.data(x), xml.end("td")) for x in ["Augmentation", "Error", "Substitutions", "Deletions", "Insertions", "PMiss", "MTWV"]], xml.end("tr")
+            for name, values in results[(language, "Limited")].iteritems():
+                with meta_open(values["ASR"]) as asr_fd, meta_open(values["KWS"]) as kws_fd:
+                    asr = ASRResults(asr_fd)
+                    kws = KWSResults(kws_fd)
+                    xml.start("tr", {})
+                    xml.start("td", {}), xml.data(name), xml.end("td")
+                    [(xml.start("td", {}), xml.data("%.3f" % (asr.get(x))), xml.end("td")) for x in ["error", "substitutions", "deletions", "insertions"]]
+                    [(xml.start("td", {}), xml.data("%.3f" % (kws.get(x))), xml.end("td")) for x in ["pmiss", "mtwv"]]
+                    xml.end("tr")
             xml.end("table")
             xml.end("td"), xml.end("tr")
             
