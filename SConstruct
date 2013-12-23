@@ -158,8 +158,8 @@ def run_experiment(jobs=20, default_files={}, default_directories={}, default_pa
     return asr_output
 
     asr_score = env.ScoreResults(env.Dir(pjoin(args["ASR_OUTPUT_PATH"], "scoring")),
-                                 asr_output)
-                                 #[env.Dir(os.path.abspath(pjoin(args["ASR_OUTPUT_PATH"], "ctm"))), files["STM_FILE"]])
+                                 #asr_output)
+                                 [env.Dir(os.path.abspath(pjoin(args["ASR_OUTPUT_PATH"], "ctm"))), files["STM_FILE"]])
 
     #env.Depends(asr_score, test)
     return asr_score

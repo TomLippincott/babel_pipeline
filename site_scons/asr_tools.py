@@ -509,7 +509,7 @@ def filter_babel_gum(target, source, env):
 
 def run_asr_experiment(target, source, env):
     args = source[-1].read()
-    construct_command = env.subst("${ATTILA_INTERPRETER} ${SOURCES[1]}", source=source)
+    construct_command = env.subst("${ATTILA_INTERPRETER} ${SOURCES[1].abspath}", source=source)
     out, err, success = run_command(construct_command)
     if not success:
         return out + err
@@ -519,7 +519,7 @@ def run_asr_experiment(target, source, env):
         os.makedirs(stdout)
     if not os.path.exists(stderr):
         os.makedirs(stderr)
-    command = env.subst("${ATTILA_INTERPRETER} ${SOURCES[2]} -n ${JOBS} -j $${PBS_ARRAYID} -w ${ACOUSTIC_WEIGHT}", source=source)
+    command = env.subst("${ATTILA_INTERPRETER} ${SOURCES[2].abspath} -n ${JOBS} -j $${PBS_ARRAYID} -w ${ACOUSTIC_WEIGHT} -l 1", source=source)
     interval = args.get("interval", 10)
     job = torque.Job(args.get("name", "scons"),
                      commands=[command],
@@ -527,7 +527,8 @@ def run_asr_experiment(target, source, env):
                      stdout_path=stdout,
                      stderr_path=stderr,
                      array=args.get("array", 0),
-                     other=args.get("other", []))
+                     other=args.get("other", ["#PBS -W group_list=yeticcls"]),
+                     )
     if env["HAS_TORQUE"]:
         job.submit(commit=True)
         while job.job_id in [x[0] for x in torque.get_jobs(True)]:
