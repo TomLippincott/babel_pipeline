@@ -1,6 +1,7 @@
 from SCons.Builder import Builder
 from SCons.Action import Action
 from SCons.Subst import scons_subst
+from SCons.Util import is_List
 import re
 from glob import glob
 from functools import partial
@@ -21,7 +22,8 @@ import locale
 import bisect
 import arpabo
 from arpabo import ProbabilityList, Arpabo, Pronunciations, Vocabulary, FrequencyList
-from common_tools import Probability
+from common_tools import Probability, run_command
+import torque
 from os.path import join as pjoin
 import matplotlib
 matplotlib.use("Agg")
@@ -38,19 +40,19 @@ def meta_open(file_name, mode="r"):
         return open(file_name, mode)
 
 
-def run_command(cmd, env={}, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, data=None, cwd=None):
-    """
-    Simple convenience wrapper for running commands (not an actual Builder).
-    """
-    if isinstance(cmd, basestring):
-        cmd = shlex.split(cmd)
-    logging.info("Running command: %s", " ".join(cmd))
-    process = subprocess.Popen(cmd, env=env, stdin=stdin, stdout=stdout, stderr=stderr, cwd=cwd)
-    if data:
-        out, err = process.communicate(data)
-    else:
-        out, err = process.communicate()
-    return out, err, process.returncode == 0
+# def run_command(cmd, env={}, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, data=None, cwd=None):
+#     """
+#     Simple convenience wrapper for running commands (not an actual Builder).
+#     """
+#     if isinstance(cmd, basestring):
+#         cmd = shlex.split(cmd)
+#     logging.info("Running command: %s", " ".join(cmd))
+#     process = subprocess.Popen(cmd, env=env, stdin=stdin, stdout=stdout, stderr=stderr, cwd=cwd)
+#     if data:
+#         out, err = process.communicate(data)
+#     else:
+#         out, err = process.communicate()
+#     return out, err, process.returncode == 0
 
 
 def pronunciations_to_vocabulary(target, source, env):
@@ -351,6 +353,8 @@ def collect_text(target, source, env):
         ofd.write("\n".join(sorted(words)) + "\n")                                      
     return None
 
+def collect_text_emitter(target, source, env):
+    return target, source
 
 def create_asr_experiment(target, source, env):
 
@@ -386,9 +390,9 @@ def create_asr_experiment_emitter(target, source, env):
 
     directories["CONFIGURATION_PATH"] = target[0].rstr()
 
-    # create a dependency on each file passed in
-    #for name, path in files.iteritems():
-    #    env.Depends(target, path)
+    for f in files.keys():
+        if is_List(files[f]) and len(files[f]) > 0:
+            files[f] = files[f][0]
 
     # all templates
     dlatsa = ["cfg.py", "construct.py", "test.py"]
@@ -503,6 +507,46 @@ def filter_babel_gum(target, source, env):
             prob_ofd.write(prob.format())
     return None
 
+def run_asr_experiment(target, source, env):
+    args = source[-1].read()
+    construct_command = env.subst("${ATTILA_INTERPRETER} ${SOURCES[1]}", source=source)
+    out, err, success = run_command(construct_command)
+    if not success:
+        return out + err
+    stdout = env.Dir(args.get("stdout", args["path"])).Dir("stdout").rstr()
+    stderr = env.Dir(args.get("stderr", args["path"])).Dir("stderr").rstr()
+    if not os.path.exists(stdout):
+        os.makedirs(stdout)
+    if not os.path.exists(stderr):
+        os.makedirs(stderr)
+    command = env.subst("${ATTILA_INTERPRETER} ${SOURCES[2]} -n ${JOBS} -j $${PBS_ARRAYID} -w ${ACOUSTIC_WEIGHT}", source=source)
+    interval = args.get("interval", 10)
+    job = torque.Job(args.get("name", "scons"),
+                     commands=[command],
+                     path=args["path"],
+                     stdout_path=stdout,
+                     stderr_path=stderr,
+                     array=args.get("array", 0),
+                     other=args.get("other", []))
+    if env["HAS_TORQUE"]:
+        job.submit(commit=True)
+        while job.job_id in [x[0] for x in torque.get_jobs(True)]:
+            logging.info("sleeping...")
+            time.sleep(interval)
+    else:
+        logging.info("no Torque server, but I would submit:\n%s" % (job))
+    with meta_open(target[0].rstr(), "w") as ofd:
+        ofd.write(time.asctime() + "\n")
+    return None
+
+def run_asr_experiment_emitter(target, source, env):
+    args = {"array" : env["JOBS"],
+            "interval" : 120}
+    try:
+        args.update(source[0].read())
+    except:
+        args["path"] = source[0].get_dir().rstr()
+    return target[0].get_dir().File("timestamp.txt"), source + [env.Value(args)]
 
 def score_results(target, source, env):
     """
@@ -722,7 +766,7 @@ def TOOLS_ADD(env):
                            #"AugmentLanguageModelFromBabel" : Builder(action=augment_language_model_from_babel),
                            "TranscriptVocabulary" : Builder(action=transcript_vocabulary),
                            "TrainPronunciationModel" : Builder(action=train_pronunciation_model),
-                           "CollectText" : Builder(action=collect_text),
+                           "CollectText" : Builder(action=collect_text, emitter=collect_text_emitter),
                            "BabelGumLexicon" : Builder(action=babelgum_lexicon),
                            "ReplacePronunciations" : Builder(action=replace_pronunciations),
                            #"ReplaceProbabilities" : Builder(action=replace_probabilities),
@@ -737,6 +781,7 @@ def TOOLS_ADD(env):
                            "TranscriptsToVocabulary" : Builder(action=transcripts_to_vocabulary),
 
                            "CreateASRExperiment" : Builder(action=create_asr_experiment, emitter=create_asr_experiment_emitter),
-                           #"RunASRExperiment" : Builder(action=run_asr_experiment, emitter=run_asr_experiment_emitter),
+                           
+                           "RunASRExperiment" : Builder(action=run_asr_experiment, emitter=run_asr_experiment_emitter),
                            })
                

@@ -61,7 +61,6 @@ vars.AddVariables(
     ("BABEL_SCRIPT_PATH", "", "${BABEL_REPO}/tools/kws/bin64"),
     ("F4DE", "", "${BABEL_RESOURCES}/F4DE"),
     ("INDUS_DB", "", "${BABEL_RESOURCES}/IndusDB"),
-    #("LIBRARY_OVERLAY", "", "${OVERLAY}/lib:${OVERLAY}/lib64:${LORELEI_TOOLS}/boost_1_49_0/64/lib"),
     ("WRD2PHLATTICE", "", "${BABEL_BIN_PATH}/wrd2phlattice"),
     ("BUILDINDEX", "", "${BABEL_BIN_PATH}/buildindex"),
     ("BUILDPADFST", "", "${BABEL_BIN_PATH}/buildpadfst"),
@@ -87,6 +86,8 @@ env = Environment(variables=vars, ENV={}, TARFLAGS="-c -z", TARSUFFIX=".tgz",
                   )
 
 Help(vars.GenerateHelpText(env))
+
+# throw an error if a file substitution cannot be made
 AllowSubstExceptions()
 
 #
@@ -129,44 +130,53 @@ def run_experiment(jobs=20, default_files={}, default_directories={}, default_pa
     # ASR 
     #
     experiment = env.CreateASRExperiment(Dir(args["ASR_OUTPUT_PATH"]), [env.Value(x) for x in [files, directories, parameters]])
+    
+    #construct = env.Construct()
+    
+    #test = env.Test()
+    
+    #if env["HAS_TORQUE"]:
+    # construct = env.SubmitJob(pjoin(args["ASR_OUTPUT_PATH"], "construct.timestamp"), 
+    #                           [env.Value({"name" : "construct",
+    #                                       "commands" : ["${ATTILA_PATH}/tools/attila/attila construct.py"],
+    #                                       "path" : args["ASR_OUTPUT_PATH"],
+    #                                       "other" : ["#PBS -W group_list=yeticcls"],
+    #                                       "interval" : 10,
+    #                                       })])
 
-    if env["HAS_TORQUE"]:
-        construct = env.SubmitJob(pjoin(args["ASR_OUTPUT_PATH"], "construct.timestamp"), 
-                                  [env.Value({"name" : "construct",
-                                              "commands" : ["${ATTILA_PATH}/tools/attila/attila construct.py"],
-                                              "path" : args["ASR_OUTPUT_PATH"],
-                                              "other" : ["#PBS -W group_list=yeticcls"],
-                                              "interval" : 10,
-                                              })])
+    # test = env.SubmitJob(pjoin(args["ASR_OUTPUT_PATH"], "test.timestamp"), 
+    #                      [construct, env.Value({"name" : "test",
+    #                                             "commands" : ["${ATTILA_PATH}/tools/attila/attila test.py -w %f -n %s -j $${PBS_ARRAYID} -l 1" % (args["ACOUSTIC_WEIGHT"], 
+    #                                                                                                                                               jobs)],
+    #                                             "path" : args["ASR_OUTPUT_PATH"],
+    #                                             "array" : jobs,
+    #                                             "other" : ["#PBS -W group_list=yeticcls"],
+    #                                             "interval" : 120,
+    #                                             })])
 
-        test = env.SubmitJob(pjoin(args["ASR_OUTPUT_PATH"], "test.timestamp"), 
-                             [construct, env.Value({"name" : "test",
-                                                    "commands" : ["${ATTILA_PATH}/tools/attila/attila test.py -w %f -n %s -j $${PBS_ARRAYID} -l 1" % (args["ACOUSTIC_WEIGHT"], 
-                                                                                                                                                      jobs)],
-                                                    "path" : args["ASR_OUTPUT_PATH"],
-                                                    "array" : jobs,
-                                                    "other" : ["#PBS -W group_list=yeticcls"],
-                                                    "interval" : 120,
-                                                    })])
+    asr_output = env.RunASRExperiment(source=experiment, ACOUSTIC_WEIGHT=args["ACOUSTIC_WEIGHT"])
+    return asr_output
 
+    asr_score = env.ScoreResults(env.Dir(pjoin(args["ASR_OUTPUT_PATH"], "scoring")),
+                                 asr_output)
+                                 #[env.Dir(os.path.abspath(pjoin(args["ASR_OUTPUT_PATH"], "ctm"))), files["STM_FILE"]])
 
-        asr_score = env.ScoreResults(env.Dir(pjoin(args["ASR_OUTPUT_PATH"], "scoring")),
-                                     [env.Dir(os.path.abspath(pjoin(args["ASR_OUTPUT_PATH"], "ctm"))), files["STM_FILE"]])
+    #env.Depends(asr_score, test)
+    return asr_score
+    #return asr_score
+    #else:
+    #asr_score = env.File(pjoin(args["ASR_OUTPUT_PATH"], "scoring", "babel.sys"))
+    #return experiment
 
-        env.Depends(asr_score, test)
-        return asr_score
-    else:
-        #asr_score = env.File(pjoin(args["ASR_OUTPUT_PATH"], "scoring", "babel.sys"))
-        return experiment
     #
     # KEYWORD SEARCH
     #
 
     # just make some local variables from the experiment definition (for convenience)
     iv_dict = args["VOCABULARY_FILE"]
-    oov_dict = args["OOV_DICTIONARY"]
+    oov_dict = args["OOV_DICTIONARY_FILE"]
     dbfile = args["DATABASE_FILE"]
-    kw_file = args["KEYWORDS"]
+    kw_file = args["KEYWORDS_FILE"]
     language_id = args["LANGUAGE_ID"]
 
     iv_query_terms, oov_query_terms, term_map, word_to_word_fst, kw_file = env.QueryFiles([pjoin(args["KWS_OUTPUT_PATH"], x) for x in ["iv_queries.txt", 
@@ -180,7 +190,7 @@ def run_experiment(jobs=20, default_files={}, default_directories={}, default_pa
     base_path = args["OUTPUT_PATH"]
     args["LATTICE_DIRECTORY"] = pjoin(args["ASR_OUTPUT_PATH"], "lat")
     args["JOBS"] = 4
-    args["KW_FILE"] = args["KEYWORDS"]
+    args["KW_FILE"] = args["KEYWORDS_FILE"]
 
     
     full_lattice_list = env.LatticeList(pjoin(args["KWS_OUTPUT_PATH"], "lattice_list.txt"),
@@ -363,6 +373,13 @@ for (language, language_id, expid), config in env["LANGUAGES"].iteritems():
                                         STM_FILE=stm_file,
                                         KEYWORDS_FILE=keywords,
                                         OOV_DICTIONARY_FILE=oov_dict,
+                                        TRFS_FILE=env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "models", "*.trfs")),
+                                        TR_FILE=env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "models", "*.tr")),
+                                        CTX_FILE=env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "models", "*.ctx")),
+                                        GS_FILE=env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "models", "*.gs")),
+                                        MS_FILE=env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "models", "*.ms")),
+                                        FS_FILE=env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "models", "*.fs")),
+                                        TXT_PATH=pjoin(env["IBM_MODELS"], str(language_id), pack, "SI", "cons"),
                                         )
         
         # baseline experiment

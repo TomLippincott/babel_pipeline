@@ -16,26 +16,8 @@ import shlex
 import time
 import shutil
 import tempfile
-from common_tools import meta_open, temp_dir
+from common_tools import meta_open, temp_dir, run_command
 from arpabo import ProbabilityList, Arpabo, Pronunciations, Vocabulary
-
-# def meta_open(file_name, mode="r"):
-#     """
-#     Convenience function for opening a file with gzip if it ends in "gz", uncompressed otherwise.
-#     """
-#     if os.path.splitext(file_name)[1] == ".gz":
-#         return gzip.open(file_name, mode)
-#     else:
-#         return open(file_name, mode)
-
-def run_command(cmd, env={}, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE):
-    """
-    Simple convenience wrapper for running commands (not an actual Builder).
-    """
-    logging.info("Running command: %s", cmd)
-    process = subprocess.Popen(shlex.split(cmd), env=env, stdin=stdin, stdout=stdout, stderr=stderr)
-    out, err = process.communicate()
-    return out, err, process.returncode == 0
 
 def query_files(target, source, env):
     # OUTPUT:
@@ -221,12 +203,13 @@ Usage: /mnt/calculon-minor/lorelei_svn/KWS/bin64/wrd2phlattice [-opts] [output_d
     args["CONFUSION_NETWORK"] = ""
     args["FSM_DIR"] = "temp"
     args["WORDPRONSYMTABLE"] = wordpron.rstr()
-    cmd = env.subst("${WRD2PHLATTICE}")
+    #cmd = env.subst("${WRD2PHLATTICE}")
     argstr = "-d %(DICTIONARY)s -D %(DATA_FILE)s -t %(FSMGZ_FORMAT)s -s %(WORDPRONSYMTABLE)s -S %(EPSILON_SYMBOLS)s %(CONFUSION_NETWORK)s -P %(PRUNE_THRESHOLD)d %(FSM_DIR)s" % args
+    cmd = env.subst("${WRD2PHLATTICE} %s" % (argstr))
     #argstr = "-d %(DICTIONARY)s -D %(DATA_FILE)s -t -s %(WORDPRONSYMTABLE)s -S %(EPSILON_SYMBOLS)s %(CONFUSION_NETWORK)s -P %(PRUNE_THRESHOLD)d %(FSM_DIR)s" % args
     if not os.path.exists(os.path.dirname(target[0].rstr())):
         os.makedirs(os.path.dirname(target[0].rstr()))
-    stdout, stderr, success = run_command("%s %s" % (cmd, argstr), env={"LD_LIBRARY_PATH" : env.subst(env["LIBRARY_OVERLAY"])}, stdin=meta_open(lattice_list.rstr()), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr, success = run_command(cmd, env={"LD_LIBRARY_PATH" : env.subst(env["LIBRARY_OVERLAY"])}, stdin=meta_open(lattice_list.rstr()), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if not success:
         return stderr
     else:

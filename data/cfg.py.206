@@ -18,7 +18,7 @@ errorHandler.setVerbosity(errorHandler.INFO_LOG)
 # dbase
 dbFile = '${DATABASE_FILE.abspath}'
 db            = dbase.DB(dirFn=dbase.getFlatDir)
-useDispatcher = True
+useDispatcher = False
 
 # HMM configuration
 HMM.silWord  = '~SIL'
@@ -44,19 +44,8 @@ psFile        = '${PHONE_FILE.abspath}'
 pssFile        = '${PHONE_SET_FILE.abspath}'
 tagsFile        = '${TAGS_FILE.abspath}'
 treeFile  = '${TREE_FILE.abspath}'
-#priors        = '${PRIORS_FILE.abspath}'
 topoFile        = '${TOPO_FILE.abspath}'
 ttreeFile        = '${TOPO_TREE_FILE.abspath}'
-
-
-
-# psFile        = '../models/pnsp'
-# pssFile       = '../models/phonesset'
-# tagsFile      = '../models/tags'
-# treeFile      = '../models/tree'
-# priors        = '../models/priors'
-# topoFile      = '../models/topo.tied'
-# ttreeFile     = '../models/topotree'
 
 # models - depend on the vocabulary
 dictFile        = '${PRONUNCIATIONS_FILE.abspath}'
@@ -64,28 +53,15 @@ vocab        = '${VOCABULARY_FILE.abspath}'
 lm        = '${LANGUAGE_MODEL_FILE.abspath}'
 graph        = '${GRAPH_OFILE.abspath}'
 
-#dictFile      = '../models/dict.test'
-#vocab         = '../models/vocab'
-#lm            = '../models/lm.2gm.arpabo.gz'
-#graph         = 'dnet.bin.gz'
-
 # frontend
 samplingrate  = ${SAMPLING_RATE}
 featuretype   = '${FEATURE_TYPE}'
-
-#samplingrate  = 8000
-#featuretype   = 'plp'
 
 # Change pcmDir to reflect where you put the audio files.
 pcmDir        = '${PCM_PATH.abspath}'
 melFile       = '${MEL_FILE.abspath}'
 warpFile      = '${WARP_FILE.abspath}'
 ldaFile       = '${LDA_FILE.abspath}'
-
-#pcmDir        = '/speech6/bedk7_nb/testi/721/206/206-Delivery/'
-#melFile       = '../models/mel'
-#warpFile      = '../adapt/warp.lst'
-#ldaFile       = '../models/30.mat'
 
 # frontend
 fe = frontend.FeCombo(db,samplingrate,featuretype)
@@ -94,15 +70,10 @@ fe.pcm.pcmDir     = pcmDir
 fe.norm.normMode  = 1
 fe.norm.normDir   = '${CMS_PATH.abspath}'
 fe.fmllr.fmllrDir = '${FMLLR_PATH.abspath}'
-#fe.norm.normDir   = '../adapt/cms/'
-#fe.fmllr.fmllrDir = '../adapt/fmllr/'
-#warpFile          = '../adapt/warp.lst'
-#ldaFile           = '../models/30.mat'
 ictx              = 8
 octx              = 4
 
 # acoustic model
-#treeFile  = '../models/tree'
 trfsFile  = '${TRFS_FILE.abspath}'
 trFile    = '${TR_FILE.abspath}'
 ctxFile   = '${CTX_FILE.abspath}'
@@ -110,24 +81,16 @@ gsFile    = '${GS_FILE.abspath}'
 msFile    = '${MS_FILE.abspath}'
 fsFile    = '${FS_FILE.abspath}'
 
-# trfsFile  = '../models/512.trfs'
-# trFile    = '../models/7.tr'
-# ctxFile   = '../models/7.ctx'
-# gsFile    = '../models/8.gs'
-# msFile    = '../models/8.ms'
-# fsFile    = '../models/8.fs'
-
 # pruning
 selectMaxL = '[256]'
 
 # decoding output
-#ctmDir    = 'ctm/'
-#latDir    = 'lat/'
+ctmDir = '${CTM_OPATH.abspath}/'
+latDir = '${LAT_OPATH.abspath}/'
 
 # mllr
 minCount  = 3000
 depthN    = 5
-##txtDir    = '../SI/cons/'
+txtDir    = '${TXT_PATH.abspath}/'
 
-ctmDir = '${CTM_OPATH.abspath}/'
-latDir = '${LAT_OPATH.abspath}/'
+
