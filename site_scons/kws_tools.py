@@ -435,7 +435,7 @@ def score(target, source, env):
     args = source[-1].read()
 
     with temp_dir("kws_work") as work_dir, temp_dir("kws_out") as out_dir:
-        cmd = env.subst("${F4DE}/bin/BABEL13_Scorer -XmllintBypass -sys ${SOURCE} -dbDir ${INDUS_DB} -comp %s -res %s -exp %s" % (work_dir, out_dir, args.get("EXPID", "KWS13_IBM_babel106b-v0.2g_conv-dev_BaDev_KWS_FullLP_BaseLR_NTAR_p-test-STO_1")), source=source)
+        cmd = env.subst("${PERL} ${F4DE}/bin/BABEL13_Scorer -XmllintBypass -sys ${SOURCE} -dbDir ${INDUS_DB} -comp %s -res %s -exp %s" % (work_dir, out_dir, args.get("EXPID", "KWS13_IBM_babel106b-v0.2g_conv-dev_BaDev_KWS_FullLP_BaseLR_NTAR_p-test-STO_1")), source=source)
         #cmd = env.subst("${F4DE}/KWSEval/BABEL/Participants/BABEL_Scorer.pl -XmllintBypass -sys ${SOURCE} -dbDir ${INDUS_DB} -comp %s -res %s -exp %s" % (work_dir, out_dir, args.get("EXPID", "KWS13_IBM_babel106b-v0.2g_conv-dev_BaDev_KWS_FullLP_BaseLR_NTAR_p-test-STO_1")), source=source)
         stdout, stderr, success = run_command(cmd, env={"LD_LIBRARY_PATH" : env.subst("${LIBRARY_OVERLAY}"), 
                                                         "F4DE_BASE" : env.subst(env["F4DE"]),
