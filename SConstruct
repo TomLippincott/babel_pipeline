@@ -50,7 +50,8 @@ vars.AddVariables(
     ("BABEL_REPO", "", None),
     ("BABEL_RESOURCES", "", None),
     ("LORELEI_TOOLS", "", None),
-
+    ("G2P", "", None),
+ 
     ("OVERLAY", "", None),
 
     # these variables all have default definitions in terms of the previous, but may be overridden as needed
@@ -153,6 +154,11 @@ def run_experiment(jobs=20, default_files={}, default_directories={}, default_pa
     #                                             "other" : ["#PBS -W group_list=yeticcls"],
     #                                             "interval" : 120,
     #                                             })])
+    if not env["HAS_TORQUE"]:
+        return (env.File(pjoin(args["ASR_OUTPUT_PATH"], "scoring", "babel.sys")),
+                env.File(pjoin(args["KWS_OUTPUT_PATH"], "output", "Full-Occur-MITLLFA3-AppenWordSeg.sum.txt")),
+                )
+
 
     asr_output = env.RunASRExperiment(source=experiment, ACOUSTIC_WEIGHT=args["ACOUSTIC_WEIGHT"])
     #return asr_output
@@ -389,7 +395,8 @@ for (language, language_id, expid), config in env["LANGUAGES"].iteritems():
                                              LANGUAGE_MODEL_FILE=limited_language_model_file, 
                                              )
 
-        #results[(language, "Limited")]["Baseline"] = {"ASR" : env.File(pjoin("work", language, pack, "baseline", "asr", "scoring", "babel.sys")), 
+        results[(language, "Limited")]["Baseline"] = baseline_results
+        #{"ASR" : env.File(pjoin("work", language, pack, "baseline", "asr", "scoring", "babel.sys")), 
         #                                              "KWS" : env.File(pjoin("work", language, pack, "baseline", "kws", "output", "Ensemble.AllOccur.results.txt")),
         #                                              }
 
@@ -408,33 +415,31 @@ for (language, language_id, expid), config in env["LANGUAGES"].iteritems():
                                                           [oracle_text, oracle_text_words, env.Value(markov)])
 
         oracle_results = language_pack_run(OUTPUT_PATH=exp_path,
-                                             VOCABULARY_FILE=oracle_vocabulary[0],
-                                             PRONUNCIATIONS_FILE=oracle_pronunciations,
-                                             LANGUAGE_MODEL_FILE=oracle_language_model[0],
-                                             PHONE_FILE=oracle_pnsp,
-                                             )
-
-        #results[(language, "Limited")]["Oracle"] = {"ASR" : env.File(pjoin("work", language, pack, "triple_oracle", "asr", "scoring", "babel.sys")), 
-        #                                            "KWS" : env.File(pjoin("work", language, pack, "triple_oracle", "kws", "output", "Ensemble.AllOccur.results.txt")),
-        #                                            }
-
+                                           VOCABULARY_FILE=oracle_vocabulary[0],
+                                           PRONUNCIATIONS_FILE=oracle_pronunciations,
+                                           LANGUAGE_MODEL_FILE=oracle_language_model[0],
+                                           PHONE_FILE=oracle_pnsp,
+                                           )
+        
+        results[(language, "Limited")]["Oracle"] = oracle_results
 
         # babelgum experiments
-        #for size in [50000]:
-            #for expansion in limited_basic_expansions[1]:
-            #    pass
-
-            #for expansion in limited_bigram_expansions:
-            #    pass
-
-        # continue        
-        # #experiments.append(language_pack_run(OUTPUT_PATH=exp_path,
-        # #                                     VOCABULARY_FILE=babelgum_vocabulary,
-        # #                                     PRONUNCIATIONS_FILE=babelgum_pronunciations,
-        # #                                     LANGUAGE_MODEL_FILE=babelgum_language_model,
-        # #                                     ))
-
-
+        for size in [50000]:
+            for expansion in [limited_basic_expansions[1]]:
+                exp_path = pjoin("work", language, pack, "babelgum_%d" % size)                
+                words = env.TopWords(pjoin(exp_path, "probability_list.gz"), [expansion, env.Value({"COUNT" : size})])
+                g2p = env.RunG2P(pjoin(exp_path, "g2p.gz"), [words, pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "tools/g2p/model-6")])
+                pronunciations = env.G2PToBabel(pjoin(exp_path, "pronunciations.gz"), g2p)
+                babelgum_vocabulary, babelgum_pronunciations, babelgum_language_model = env.AugmentLanguageModel(
+                    [pjoin(exp_path, x) for x in ["vocabulary.txt", "pronunciations.txt", os.path.basename(limited_language_model_file.rstr())]],
+                    [limited_pronunciations_file, limited_language_model_file, pronunciations, env.Value(.1)]
+                    )
+                
+                babelgum_results = language_pack_run(OUTPUT_PATH=exp_path,
+                                                     VOCABULARY_FILE=babelgum_vocabulary,
+                                                     PRONUNCIATIONS_FILE=babelgum_pronunciations,
+                                                     LANGUAGE_MODEL_FILE=babelgum_language_model,
+                                                     )
 
         # for method, (probs, prons) in config["expansions"].iteritems():
         #     for size in [50000]:
@@ -518,7 +523,7 @@ for (language, language_id, expid), config in env["LANGUAGES"].iteritems():
         #                                                  ))
 
 
-env.BuildSite(target=[], source=[env.Value(properties), env.Value(figures), env.Value(results)], BASE_PATH="work/babel_site")
+env.BuildSite(target=[], source=[env.Value(properties), env.Value(figures), env.Value({k : {kk : {"ASR" : vv[0], "KWS" : vv[1]} for kk, vv in v.iteritems()} for k, v in results.iteritems()})], BASE_PATH="work/babel_site")
 
 #                     babelgum_rightwords_uniform_path = pjoin("work", "experiments_%d_%f" % (size, weight), language, pack, "babelgum_corrected", "babelgum", "uniform")
 #                     babelgum_rightwords_uniform_experiment = env.CreateSmallASRDirectory(Dir(babelgum_rightwords_uniform_path),

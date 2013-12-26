@@ -21,8 +21,8 @@ import codecs
 import locale
 import bisect
 import arpabo
-from arpabo import ProbabilityList, Arpabo, Pronunciations, Vocabulary, FrequencyList
-from common_tools import Probability, run_command
+from babel import ProbabilityList, Arpabo, Pronunciations, Vocabulary, FrequencyList
+from common_tools import Probability, run_command, temp_file
 import torque
 from os.path import join as pjoin
 import matplotlib
@@ -246,7 +246,8 @@ def missing_vocabulary(target, source, env):
 
 def augment_language_model(target, source, env):
     """
-    Input: old language model, old pronunciations, new pronunciations
+    Input: old language model, old pronunciations, new pronunciations|
+    ** old language model, old pronunciations, new pronunciations
     Output: new language model, new vocab, new pronunciations
     """
     from arpabo import Arpabo, Pronunciations
@@ -756,6 +757,56 @@ def split_train_dev(target, source, env):
                     ofd.write(ifd.read())
     return None
 
+def pronunciations_from_probability_list(target, source, env):
+    with meta_open(source[0].rstr()) as pl_fd:
+        pass
+    return None
+
+def top_words(target, source, env):
+    args = source[1].read()
+    with meta_open(source[0].rstr()) as in_fd, meta_open(target[0].rstr(), "w") as out_fd:
+        out_fd.write(ProbabilityList(in_fd).get_top_n(args["COUNT"]).format())
+    return None
+
+def run_g2p(target, source, env):
+    with temp_file() as tfname, meta_open(source[0].rstr()) as pl_fd:
+        pl = ProbabilityList(pl_fd)
+        with meta_open(tfname, "w") as t_fd:
+            t_fd.write("\n".join(pl.get_words()))
+        out, err, success = run_command("python %s/g2p.py --model %s --encoding=%s --apply %s --variants-mass=%f  --variants-number=%d" % (env["G2P"], source[1].rstr(), "utf-8", tfname, .9, 4),
+                                        env={"PYTHONPATH" : env.subst("${OVERLAY}/lib/python2.7/site-packages")},
+                                        )
+        if not success:
+            return err
+        else:
+            with meta_open(target[0].rstr(), "w") as out_fd:
+                out_fd.write(out)
+    return None
+
+def g2p_to_babel(target, source, env):
+    # include accuracy
+    myWords = {}
+    with meta_open(source[0].rstr()) as in_fd, meta_open(target[0].rstr(), "w") as out_fd:
+        for tokens in [x.strip().replace('\t\t','\t').split('\t') for x in in_fd]:
+            if len(tokens) > 3:
+                word, pronunciation = tokens[0], tokens[-1]
+                pronunciation = pronunciation.replace('\"', '').replace('%','').replace('.','').strip().replace('#', '').replace('  ',' ').replace('  ',' ').replace('  ',' ')
+                phonemes = pronunciation.split(" ")
+                if len(phonemes) > 1:
+                    new_phonemes = [phonemes[0], "[ wb ]"] + phonemes[1:] + ["[ wb ]"]
+                    new_pronunciation = " ".join(new_phonemes)
+                elif ':' in phonemes[0] or phonemes[0] in ['a', 'e', 'o']:
+                    new_pronunciation = "%s [ wb ]" % (pronunciation)
+                else:
+                    new_pronunciation = pronunciation
+                new_pronunciation = new_pronunciation.strip()
+                myWords[word] = myWords.get(word, []) + [new_pronunciation]
+            else:
+                logging.info("couldn't process G2P output: %s", "\t".join(tokens))
+        for word in myWords.keys():
+            for count, pronun in enumerate(myWords[word]):
+                out_fd.write("%s(%.2d) %s\n" % (word, count, pronun))
+    return None
 
 def TOOLS_ADD(env):
     env.Append(BUILDERS = {"SplitTrainDev" : Builder(action=split_train_dev),
@@ -784,5 +835,9 @@ def TOOLS_ADD(env):
                            "CreateASRExperiment" : Builder(action=create_asr_experiment, emitter=create_asr_experiment_emitter),
                            
                            "RunASRExperiment" : Builder(action=run_asr_experiment, emitter=run_asr_experiment_emitter),
+                           "PronunciationsFromProbabilityList" : Builder(action=pronunciations_from_probability_list),
+                           "TopWords" : Builder(action=top_words),
+                           "RunG2P" : Builder(action=run_g2p),
+                           "G2PToBabel" : Builder(action=g2p_to_babel),
                            })
                

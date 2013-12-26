@@ -161,7 +161,7 @@ def build_site(target, source, env):
             xml.start("tr", {}), xml.start("td", {}), xml.start("h3", {}), xml.data("Extrinsic performance evaluation"), xml.end("h3"), xml.end("td"), xml.end("tr")
             xml.start("tr", {}), xml.start("td", {}), xml.start("table", {"border" : "1"})
             xml.start("tr", {}), [(xml.start("td", {}), xml.data(x), xml.end("td")) for x in ["Augmentation", "Error", "Substitutions", "Deletions", "Insertions", "PMiss", "MTWV"]], xml.end("tr")
-            for name, values in results[(language, "Limited")].iteritems():
+            for name, values in sorted(results[(language, "Limited")].iteritems()):
                 with meta_open(values["ASR"]) as asr_fd, meta_open(values["KWS"]) as kws_fd:
                     asr = ASRResults(asr_fd)
                     kws = KWSResults(kws_fd)
