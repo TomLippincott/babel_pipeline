@@ -20,7 +20,6 @@ import tempfile
 import codecs
 import locale
 import bisect
-import arpabo
 from babel import ProbabilityList, Arpabo, Pronunciations, Vocabulary, FrequencyList
 from common_tools import Probability, run_command, temp_file
 import torque
@@ -57,7 +56,7 @@ def meta_open(file_name, mode="r"):
 
 def pronunciations_to_vocabulary(target, source, env):
     with meta_open(source[0].rstr()) as ifd:
-        d = arpabo.Pronunciations(ifd)
+        d = Pronunciations(ifd)
     with meta_open(target[0].rstr(), "w") as ofd:
         ofd.write(d.format_vocabulary())
     return None
@@ -250,7 +249,7 @@ def augment_language_model(target, source, env):
     ** old language model, old pronunciations, new pronunciations
     Output: new language model, new vocab, new pronunciations
     """
-    from arpabo import Arpabo, Pronunciations
+    #from arpabo import Arpabo, Pronunciations
 
     weighted = len(source) == 5
         
@@ -265,7 +264,7 @@ def augment_language_model(target, source, env):
     logging.info("Words to add: %s", new_prons)
 
     if weighted:
-        new_probs = arpabo.ProbabilityList(meta_open(source[3].rstr()))
+        new_probs = ProbabilityList(meta_open(source[3].rstr()))
         logging.info("Words to add (probabilities): %s", new_probs)
 
 
@@ -434,8 +433,8 @@ def replace_pronunciations(target, source, env):
     for overlapping words.  Returns a new vocabulary file and pronunciation file.
     """
     with meta_open(source[0].rstr()) as old_fd, meta_open(source[1].rstr()) as repl_fd:
-        old = arpabo.Pronunciations(old_fd)
-        repl = arpabo.Pronunciations(repl_fd)
+        old = Pronunciations(old_fd)
+        repl = Pronunciations(repl_fd)
     logging.info("Old pronunciations: %s", old)
     logging.info("Replacement pronunciations: %s", repl)
     old.replace_by(repl)
@@ -468,10 +467,10 @@ def filter_words(target, source, env):
     The language model probabilities are scaled such that unigrams sum to one. ***
     """
     with meta_open(source[0].rstr()) as voc_fd, meta_open(source[1].rstr()) as pron_fd, meta_open(source[2].rstr()) as lm_fd, meta_open(source[3].rstr()) as lim_fd:
-        lm = arpabo.Arpabo(lm_fd)
-        pron = arpabo.Pronunciations(pron_fd)
-        voc = arpabo.Vocabulary(voc_fd)
-        lim = arpabo.Vocabulary(lim_fd)
+        lm = Arpabo(lm_fd)
+        pron = Pronunciations(pron_fd)
+        voc = Vocabulary(voc_fd)
+        lim = Vocabulary(lim_fd)
     logging.info("Original vocabulary: %s", voc)
     logging.info("Original pronunciations: %s", pron)
     logging.info("Original LM: %s", lm)
@@ -658,7 +657,7 @@ def split_expansion_emitter(target, source, env):
     return new_targets, source
 
 def transcripts_to_vocabulary(target, source, env):
-    word_counts = arpabo.FrequencyList()
+    word_counts = FrequencyList()
     for fname in source:
         with meta_open(fname.rstr()) as ifd:
             for line in [x for x in ifd if not re.match(r"^\[.*\]\s*", x)]:

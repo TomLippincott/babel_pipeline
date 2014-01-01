@@ -39,6 +39,109 @@ def run_kws(target, source, env):
 def run_kws_emitter(target, source, env):
     return target, source
 
+def build_extrinsic_tables(target, source, env):
+    return None
+
+def build_extrinsic_tables_emitter(target, source, env):
+    new_sources = [files_to_strings(source[0].read())] + leaves(source[0].read())
+    return target, new_sources
+
+def build_latex(target, source, env):
+    properties, results = [x.read() for x in source[0:2]]
+    languages = set([x[0] for x in properties.keys()])
+    lookup = {"PRE" : "Prefixes",
+              "STM" : "Stems",
+              "SUF" : "Suffixes",
+              }
+    packs = ["Limited"]
+    language_table, morfessor_table, babelgum_table = {}, {}, {}
+
+
+    for language in languages:
+        language_properties = properties[(language, "Limited")]
+        with meta_open(language_properties["prefixes"]) as prefix_fd, meta_open(language_properties["stems"]) as stem_fd, meta_open(language_properties["suffixes"]) as suffix_fd:
+            pre, stm, suf = [
+                [l.strip().split()[0] for l in prefix_fd if "<epsilon>" not in l],
+                [l.strip().split()[0] for l in stem_fd if "<epsilon>" not in l],
+                [l.strip().split()[0] for l in suffix_fd if "<epsilon>" not in l],
+                ]
+            babelgum_table[language] = [len(pre), "%.2f" % (sum(map(len, pre)) / max(1.0, float(len(pre)))), 
+                                         len(stm), "%.2f" % (sum(map(len, stm)) / float(len(stm))),
+                                         len(suf), "%.2f" % (sum(map(len, suf)) / float(len(suf))),
+                                         ]            
+
+        with meta_open(language_properties["limited_vocabulary"]) as lim_fd, meta_open(language_properties["dev_vocabulary"]) as dev_fd:
+            lim_vocab = set(FrequencyList(lim_fd).make_conservative().keys())
+            dev_vocab = set(FrequencyList(dev_fd).make_conservative().keys())
+            lim_vocab_size = len(lim_vocab)
+            dev_vocab_size = len(dev_vocab)
+            both_vocabs = len(lim_vocab.union(dev_vocab))
+            avg_len_lim_vocab = sum(map(len, lim_vocab)) / float(len(lim_vocab))
+            avg_len_dev_vocab = sum(map(len, dev_vocab)) / float(len(dev_vocab))
+            language_table[language] = [lim_vocab_size, "%.2f" % (avg_len_lim_vocab), 
+                                        dev_vocab_size, "%.2f" % (avg_len_dev_vocab), 
+                                        len([x for x in dev_vocab if x not in lim_vocab])]
+        with meta_open(language_properties["morfessor_input"]) as input_fd, meta_open(language_properties["morfessor_output"]) as output_fd:
+            input_vocab = FrequencyList({w : int(c) for c, w in [x.strip().split() for x in input_fd]})
+            morf_output = MorfessorOutput(output_fd)
+            pre = morf_output.morphs["PRE"]
+            stm = morf_output.morphs["STM"]
+            suf = morf_output.morphs["SUF"]
+            morfessor_table[language] = [len(pre), "%.2f" % (sum(map(len, pre)) / max(1.0, float(len(pre)))), 
+                                         len(stm), "%.2f" % (sum(map(len, stm)) / float(len(stm))),
+                                         len(suf), "%.2f" % (sum(map(len, suf)) / float(len(suf))),
+                                         ]
+    with meta_open(target[0].rstr(), "w") as ofd:
+        body = "\n".join([r"  %s & %s \\" % (l.title(), " & ".join(map(str, v))) for l, v in sorted(language_table.iteritems())])
+        ofd.write(r"""
+%%language properties
+\begin{tabular}{|l|r|r|r|r|r|}
+  \hline
+  Language & \multicolumn{2}{|c|}{Training} & \multicolumn{2}{|c|}{Development} & OOV \\
+  & Count & Avg. length & Count & Avg. length & \\
+  \hline
+%s
+  \hline
+\end{tabular}
+""" % body)
+
+        body = "\n".join([r"  %s & %s \\" % (l.title(), " & ".join(map(str, v))) for l, v in sorted(morfessor_table.iteritems())])
+        ofd.write(r"""
+%%morfessor properties
+\begin{tabular}{|l|r|r|r|r|r|r|}
+  \hline
+  Language & \multicolumn{2}{|c|}{Prefixes} & \multicolumn{2}{|c|}{Stems} & \multicolumn{2}{|c|}{Suffixes} \\
+  & Count & Avg. length & Count & Avg. length & Count & Avg. length \\
+  \hline
+%s
+  \hline
+\end{tabular}
+""" % body)
+
+        body = "\n".join([r"  %s & %s \\" % (l.title(), " & ".join(map(str, v))) for l, v in sorted(babelgum_table.iteritems())])
+        ofd.write(r"""
+%%babelgum properties
+\begin{tabular}{|l|r|r|r|r|r|r|}
+  \hline
+  Language & \multicolumn{2}{|c|}{Prefixes} & \multicolumn{2}{|c|}{Stems} & \multicolumn{2}{|c|}{Suffixes} \\
+  & Count & Avg. length & Count & Avg. length & Count & Avg. length \\
+  \hline
+%s
+  \hline
+\end{tabular}
+""" % body)
+        pass
+
+    return None
+
+def build_latex_emitter(target, source, env):
+    properties,results = [x.read() for x in source[0:3]]
+    new_sources = [env.Value(files_to_strings(properties)),
+                   env.Value(files_to_strings(results)),
+                   ] + sum(map(leaves, [properties, results]), [])
+    return target, new_sources
+
+
 def build_site(target, source, env):
     properties, figures, results = [x.read() for x in source[0:3]]
     languages = set([x[0] for x in figures.keys()])
@@ -65,9 +168,9 @@ def build_site(target, source, env):
         for language in languages:
             language_properties = properties[(language, "Limited")]
             with meta_open(language_properties["prefixes"]) as prefix_fd, meta_open(language_properties["stems"]) as stem_fd, meta_open(language_properties["suffixes"]) as suffix_fd:
-                babel_output = {"PRE" : [l.strip().split()[0] for l in prefix_fd],
-                                "STM" : [l.strip().split()[0] for l in stem_fd],
-                                "SUF" : [l.strip().split()[0] for l in suffix_fd],
+                babel_output = {"PRE" : [l.strip().split()[0] for l in prefix_fd if "<epsilon>" not in l],
+                                "STM" : [l.strip().split()[0] for l in stem_fd if "<epsilon>" not in l],
+                                "SUF" : [l.strip().split()[0] for l in suffix_fd if "<epsilon>" not in l],
                                 }
             with meta_open(language_properties["limited_vocabulary"]) as lim_fd, meta_open(language_properties["dev_vocabulary"]) as dev_fd:
                 lim_vocab = set(FrequencyList(lim_fd).make_conservative().keys())
@@ -213,4 +316,6 @@ def TOOLS_ADD(env):
     env.Append(BUILDERS = {"RunASR" : Builder(action=run_asr, emitter=run_asr_emitter),
                            "RunKWS" : Builder(action=run_kws, emitter=run_kws_emitter),
                            "BuildSite" : Builder(action=build_site, emitter=build_site_emitter),
+                           "BuildLatex" : Builder(action=build_latex, emitter=build_latex_emitter),
+                           "BuildExtrinsicTables" : Builder(action=build_extrinsic_tables, emitter=build_extrinsic_tables_emitter),
                            })

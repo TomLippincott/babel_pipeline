@@ -20,6 +20,11 @@ vars = Variables("custom.py")
 vars.AddVariables(
     ("OUTPUT_WIDTH", "", 130),
 
+    ("RUN_ASR", "", False),
+    ("RUN_KWS", "", False),
+
+    ("SIZES", "", []),
+
     ("LANGUAGE_PACKS", "", None),
     ("IBM_MODELS", "", None),
     ("LORELEI_SVN", "", None),
@@ -154,6 +159,10 @@ def run_experiment(jobs=20, default_files={}, default_directories={}, default_pa
     #                                             "other" : ["#PBS -W group_list=yeticcls"],
     #                                             "interval" : 120,
     #                                             })])
+
+    if not env["RUN_ASR"]:
+        return (None, None)
+
     if not env["HAS_TORQUE"]:
         return (env.File(pjoin(args["ASR_OUTPUT_PATH"], "scoring", "babel.sys")),
                 env.File(pjoin(args["KWS_OUTPUT_PATH"], "output", "Full-Occur-MITLLFA3-AppenWordSeg.sum.txt")),
@@ -177,6 +186,9 @@ def run_experiment(jobs=20, default_files={}, default_directories={}, default_pa
     #
     # KEYWORD SEARCH
     #
+    if not env["RUN_KWS"]:
+        return (None, None)
+
 
     # just make some local variables from the experiment definition (for convenience)
     iv_dict = args["VOCABULARY_FILE"]
@@ -314,9 +326,11 @@ for (language, language_id, expid), config in env["LANGUAGES"].iteritems():
     prefixes = env.File(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "data", "prefix.lex"))
     stems = env.File(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "data", "stem.lex"))
     suffixes = env.File(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "data", "suffix.lex"))
-
+    
 
     figures[(language, "Limited")] = env.PlotReduction(limited_basic_expansions + limited_bigram_expansions + [limited_vocabulary, dev_vocabulary, env.Value({"bins" : 1000})])
+    #figures[(language, "Limited")]["language"] = language
+
     properties[(language, "Limited")] = {"prefixes" : prefixes,
                                          "stems" : stems,
                                          "suffixes" : suffixes,
@@ -424,7 +438,7 @@ for (language, language_id, expid), config in env["LANGUAGES"].iteritems():
         results[(language, "Limited")]["Oracle"] = oracle_results
 
         # babelgum experiments
-        for size in [50000]:
+        for size in env["SIZES"]:
             for expansion in [limited_basic_expansions[1]]:
                 exp_path = pjoin("work", language, pack, "babelgum_%d" % size)                
                 words = env.TopWords(pjoin(exp_path, "probability_list.gz"), [expansion, env.Value({"COUNT" : size})])
@@ -440,6 +454,18 @@ for (language, language_id, expid), config in env["LANGUAGES"].iteritems():
                                                      PRONUNCIATIONS_FILE=babelgum_pronunciations,
                                                      LANGUAGE_MODEL_FILE=babelgum_language_model,
                                                      )
+
+                exp_path = pjoin("work", language, pack, "weighted_babelgum_%d" % size)
+                weighted_babelgum_vocabulary, weighted_babelgum_pronunciations, weighted_babelgum_language_model = env.AugmentLanguageModel(
+                    [pjoin(exp_path, x) for x in ["vocabulary.txt", "pronunciations.txt", os.path.basename(limited_language_model_file.rstr())]],
+                    [limited_pronunciations_file, limited_language_model_file, pronunciations, words, env.Value(.1)]
+                    )
+
+                weighted_babelgum_results = language_pack_run(OUTPUT_PATH=exp_path,
+                                                              VOCABULARY_FILE=weighted_babelgum_vocabulary,
+                                                              PRONUNCIATIONS_FILE=weighted_babelgum_pronunciations,
+                                                              LANGUAGE_MODEL_FILE=weighted_babelgum_language_model,
+                                                              )
 
         # for method, (probs, prons) in config["expansions"].iteritems():
         #     for size in [50000]:
@@ -523,7 +549,11 @@ for (language, language_id, expid), config in env["LANGUAGES"].iteritems():
         #                                                  ))
 
 
-env.BuildSite(target=[], source=[env.Value(properties), env.Value(figures), env.Value({k : {kk : {"ASR" : vv[0], "KWS" : vv[1]} for kk, vv in v.iteritems()} for k, v in results.iteritems()})], BASE_PATH="work/babel_site")
+#env.BuildSite(target=[], source=[env.Value(properties), env.Value(figures), env.Value({k : {kk : {"ASR" : vv[0], "KWS" : vv[1]} for kk, vv in v.iteritems()} for k, v in results.iteritems()})], BASE_PATH="work/babel_site")
+
+#env.BuildLatex(target="work/tables.tex", source=[env.Value(properties), env.Value({k : {kk : {"ASR" : vv[0], "KWS" : vv[1]} for kk, vv in v.iteritems()} for k, v in results.iteritems()})])
+
+env.BuildExtrinsicTables("work/extrinsic_tables.tex", env.Value({k : {kk : {"ASR" : vv[0], "KWS" : vv[1]} for kk, vv in v.iteritems()} for k, v in results.iteritems()}))
 
 #                     babelgum_rightwords_uniform_path = pjoin("work", "experiments_%d_%f" % (size, weight), language, pack, "babelgum_corrected", "babelgum", "uniform")
 #                     babelgum_rightwords_uniform_experiment = env.CreateSmallASRDirectory(Dir(babelgum_rightwords_uniform_path),
