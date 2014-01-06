@@ -40,13 +40,34 @@ def run_kws_emitter(target, source, env):
     return target, source
 
 def build_extrinsic_tables(target, source, env):
+    files = source[0].read()
+    rows = []
+    for (language, pack), setups in files.iteritems():
+        for setup, (asr_fname, kws_fname) in setups.iteritems():
+            with meta_open(asr_fname) as asr_fd, meta_open(kws_fname) as kws_fd:
+                asr = ASRResults(asr_fd)
+                kws = KWSResults(kws_fd)
+                rows.append([language, setup] + [asr.get(x) for x in ["error", "substitutions", "deletions", "insertions"]] + [kws.get(x) for x in ["pmiss", "mtwv"]])
+    with meta_open(target[0].rstr(), "w") as ofd:
+        body = "\n".join([r" & ".join([str(x) for x in row]) + r" \\" for row in rows])
+        ofd.write(r"""
+\begin{tabular}{|*{2}{l|}*{6}{r|}}
+  \hline
+  Language & Augmentation & \multicolumn{4}{|c|}{ASR} & \multicolumn{2}{|c|}{KWS} \\
+  & & Errors & Subs & Dels & Ins & PMiss & MTWV \\
+  \hline
+%s
+  \hline
+\end{tabular}
+""" % (body))
     return None
 
 def build_extrinsic_tables_emitter(target, source, env):
-    new_sources = [files_to_strings(source[0].read())] + leaves(source[0].read())
+    files = source[0].read()
+    new_sources = [files_to_strings(files)] + leaves(files)
     return target, new_sources
 
-def build_latex(target, source, env):
+def build_property_tables(target, source, env):
     properties, results = [x.read() for x in source[0:2]]
     languages = set([x[0] for x in properties.keys()])
     lookup = {"PRE" : "Prefixes",
@@ -91,6 +112,7 @@ def build_latex(target, source, env):
                                          len(stm), "%.2f" % (sum(map(len, stm)) / float(len(stm))),
                                          len(suf), "%.2f" % (sum(map(len, suf)) / float(len(suf))),
                                          ]
+    # language, morfessor, babelgum
     with meta_open(target[0].rstr(), "w") as ofd:
         body = "\n".join([r"  %s & %s \\" % (l.title(), " & ".join(map(str, v))) for l, v in sorted(language_table.iteritems())])
         ofd.write(r"""
@@ -105,6 +127,7 @@ def build_latex(target, source, env):
 \end{tabular}
 """ % body)
 
+    with meta_open(target[1].rstr(), "w") as ofd:
         body = "\n".join([r"  %s & %s \\" % (l.title(), " & ".join(map(str, v))) for l, v in sorted(morfessor_table.iteritems())])
         ofd.write(r"""
 %%morfessor properties
@@ -118,6 +141,7 @@ def build_latex(target, source, env):
 \end{tabular}
 """ % body)
 
+    with meta_open(target[2].rstr(), "w") as ofd:
         body = "\n".join([r"  %s & %s \\" % (l.title(), " & ".join(map(str, v))) for l, v in sorted(babelgum_table.iteritems())])
         ofd.write(r"""
 %%babelgum properties
@@ -130,11 +154,10 @@ def build_latex(target, source, env):
   \hline
 \end{tabular}
 """ % body)
-        pass
 
     return None
 
-def build_latex_emitter(target, source, env):
+def build_property_tables_emitter(target, source, env):
     properties,results = [x.read() for x in source[0:3]]
     new_sources = [env.Value(files_to_strings(properties)),
                    env.Value(files_to_strings(results)),
@@ -288,7 +311,7 @@ def files_to_strings(data):
         return data[0].rstr()
     elif isinstance(data, Node):
         return data.rstr()
-    else:
+    else:        
         raise Exception(type(data))
 
 def strings_to_files(data):
@@ -296,7 +319,7 @@ def strings_to_files(data):
         return {k : files_to_strings(v) for k, v in data.iteritems()}
     elif not isinstance(data, basestring):
         return File(data)
-
+    
 def leaves(data):
     if isinstance(data, dict):
         return sum(map(leaves, data.values()), [])
@@ -316,6 +339,6 @@ def TOOLS_ADD(env):
     env.Append(BUILDERS = {"RunASR" : Builder(action=run_asr, emitter=run_asr_emitter),
                            "RunKWS" : Builder(action=run_kws, emitter=run_kws_emitter),
                            "BuildSite" : Builder(action=build_site, emitter=build_site_emitter),
-                           "BuildLatex" : Builder(action=build_latex, emitter=build_latex_emitter),
+                           "BuildPropertyTables" : Builder(action=build_property_tables, emitter=build_property_tables_emitter),
                            "BuildExtrinsicTables" : Builder(action=build_extrinsic_tables, emitter=build_extrinsic_tables_emitter),
                            })

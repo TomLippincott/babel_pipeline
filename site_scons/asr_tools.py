@@ -762,16 +762,22 @@ def pronunciations_from_probability_list(target, source, env):
     return None
 
 def top_words(target, source, env):
-    args = source[1].read()
-    with meta_open(source[0].rstr()) as in_fd, meta_open(target[0].rstr(), "w") as out_fd:
-        out_fd.write(ProbabilityList(in_fd).get_top_n(args["COUNT"]).format())
+    args = source[-1].read()
+    with meta_open(source[0].rstr()) as words_ifd, meta_open(source[1].rstr()) as pron_ifd:
+        top = ProbabilityList(words_ifd).get_top_n(args["COUNT"])
+        prons = Pronunciations(pron_ifd)
+        prons.filter_by(top)
+    with meta_open(target[0].rstr(), "w") as words_ofd, meta_open(target[1].rstr(), "w") as pron_ofd:
+        words_ofd.write(top.format())
+        pron_ofd.write(prons.format())
     return None
 
 def run_g2p(target, source, env):
     with temp_file() as tfname, meta_open(source[0].rstr()) as pl_fd:
-        pl = ProbabilityList(pl_fd)
+        words = [x.split()[0] for x in pl_fd]
+        #pl = ProbabilityList(pl_fd)
         with meta_open(tfname, "w") as t_fd:
-            t_fd.write("\n".join(pl.get_words()))
+            t_fd.write("\n".join(words))
         out, err, success = run_command("python %s/g2p.py --model %s --encoding=%s --apply %s --variants-mass=%f  --variants-number=%d" % (env["G2P"], source[1].rstr(), "utf-8", tfname, .9, 4),
                                         env={"PYTHONPATH" : env.subst("${OVERLAY}/lib/python2.7/site-packages")},
                                         )
@@ -784,12 +790,16 @@ def run_g2p(target, source, env):
 
 def g2p_to_babel(target, source, env):
     # include accuracy
+    swap = source[1].read()
     myWords = {}
     with meta_open(source[0].rstr()) as in_fd, meta_open(target[0].rstr(), "w") as out_fd:
         for tokens in [x.strip().replace('\t\t','\t').split('\t') for x in in_fd]:
             if len(tokens) > 3:
                 word, pronunciation = tokens[0], tokens[-1]
                 pronunciation = pronunciation.replace('\"', '').replace('%','').replace('.','').strip().replace('#', '').replace('  ',' ').replace('  ',' ').replace('  ',' ')
+                for k, v in swap.iteritems():
+                    pronunciation = pronunciation.replace(k, v)
+
                 phonemes = pronunciation.split(" ")
                 if len(phonemes) > 1:
                     new_phonemes = [phonemes[0], "[ wb ]"] + phonemes[1:] + ["[ wb ]"]

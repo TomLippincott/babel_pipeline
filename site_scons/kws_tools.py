@@ -17,7 +17,7 @@ import time
 import shutil
 import tempfile
 from common_tools import meta_open, temp_dir, run_command
-from arpabo import ProbabilityList, Arpabo, Pronunciations, Vocabulary
+from babel import ProbabilityList, Arpabo, Pronunciations, Vocabulary
 
 def query_files(target, source, env):
     # OUTPUT:
@@ -205,15 +205,38 @@ Usage: /mnt/calculon-minor/lorelei_svn/KWS/bin64/wrd2phlattice [-opts] [output_d
     args["WORDPRONSYMTABLE"] = wordpron.rstr()
     #cmd = env.subst("${WRD2PHLATTICE}")
     argstr = "-d %(DICTIONARY)s -D %(DATA_FILE)s -t %(FSMGZ_FORMAT)s -s %(WORDPRONSYMTABLE)s -S %(EPSILON_SYMBOLS)s %(CONFUSION_NETWORK)s -P %(PRUNE_THRESHOLD)d %(FSM_DIR)s" % args
-    cmd = env.subst("${WRD2PHLATTICE} %s" % (argstr))
+    #cmd = env.subst("${WRD2PHLATTICE} %s" % (argstr))
     #argstr = "-d %(DICTIONARY)s -D %(DATA_FILE)s -t -s %(WORDPRONSYMTABLE)s -S %(EPSILON_SYMBOLS)s %(CONFUSION_NETWORK)s -P %(PRUNE_THRESHOLD)d %(FSM_DIR)s" % args
     if not os.path.exists(os.path.dirname(target[0].rstr())):
         os.makedirs(os.path.dirname(target[0].rstr()))
-    stdout, stderr, success = run_command(cmd, env={"LD_LIBRARY_PATH" : env.subst(env["LIBRARY_OVERLAY"])}, stdin=meta_open(lattice_list.rstr()), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    if not success:
-        return stderr
+
+    ##
+    command = env.subst("${WRD2PHLATTICE} %s" % (argstr))
+    #command = env.subst("${ATTILA_INTERPRETER} ${SOURCES[2].abspath} -n ${JOBS} -j $${PBS_ARRAYID} -w ${ACOUSTIC_WEIGHT} -l 1", source=source)
+    interval = args.get("interval", 10)
+    job = torque.Job(args.get("name", "scons-wrd2phlattice"),
+                     commands=[command],
+                     path=args["path"],
+                     stdout_path=stdout,
+                     stderr_path=stderr,
+                     other=args.get("other", ["#PBS -W group_list=yeticcls"]),
+                     )
+    if env["HAS_TORQUE"]:
+        job.submit(commit=True)
+        while job.job_id in [x[0] for x in torque.get_jobs(True)]:
+            logging.info("sleeping...")
+            time.sleep(interval)
     else:
-        meta_open(target[0].rstr(), "w").write("%s" % (time.time()))
+        logging.info("no Torque server, but I would submit:\n%s" % (job))
+    with meta_open(target[0].rstr(), "w") as ofd:
+        ofd.write(time.asctime() + "\n")
+    ##
+
+    #stdout, stderr, success = run_command(cmd, env={"LD_LIBRARY_PATH" : env.subst(env["LIBRARY_OVERLAY"])}, stdin=meta_open(lattice_list.rstr()), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    #if not success:
+    #    return stderr
+    #else:
+    #    meta_open(target[0].rstr(), "w").write("%s" % (time.time()))
     return None
 
 def get_file_list(target, source, env):
