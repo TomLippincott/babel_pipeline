@@ -27,6 +27,7 @@ parser = OptionParser()
 parser.add_option('-j',help='job identifier',dest='jid',default='0')
 parser.add_option('-n',help='number of jobs',dest='jnr',default='1')
 parser.add_option('-w',help='acweight',dest='acwt',default='0.053')
+parser.add_option('-l',help='generate lattices',dest='genLat',default='0')
 (options, args) = parser.parse_args()
 
 jid = int(options.jid)

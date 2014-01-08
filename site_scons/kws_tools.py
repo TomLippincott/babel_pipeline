@@ -18,6 +18,7 @@ import shutil
 import tempfile
 from common_tools import meta_open, temp_dir, run_command
 from babel import ProbabilityList, Arpabo, Pronunciations, Vocabulary
+import torque
 
 def query_files(target, source, env):
     # OUTPUT:
@@ -174,7 +175,7 @@ def split_list(target, source, env):
             meta_open(fname.rstr(), "w").write("".join(lines[start : end]))
     return None
 
-def word_to_phone_lattice(target, source, env):
+def word_to_phone_lattice_(target, source, env):
     """
     NEEDS WORK!
     The most substantial computational work.  Uses the IBM binary 'wrd2phlattice'
@@ -212,11 +213,19 @@ Usage: /mnt/calculon-minor/lorelei_svn/KWS/bin64/wrd2phlattice [-opts] [output_d
 
     ##
     command = env.subst("${WRD2PHLATTICE} %s" % (argstr))
+    print command
     #command = env.subst("${ATTILA_INTERPRETER} ${SOURCES[2].abspath} -n ${JOBS} -j $${PBS_ARRAYID} -w ${ACOUSTIC_WEIGHT} -l 1", source=source)
     interval = args.get("interval", 10)
+    args["path"] = args.get("path", target[0].get_dir())
+    stdout = env.Dir(args.get("stdout", args["path"])).Dir("stdout").rstr()
+    stderr = env.Dir(args.get("stderr", args["path"])).Dir("stderr").rstr()
+    if not os.path.exists(stdout):
+        os.makedirs(stdout)
+    if not os.path.exists(stderr):
+        os.makedirs(stderr)
     job = torque.Job(args.get("name", "scons-wrd2phlattice"),
                      commands=[command],
-                     path=args["path"],
+                     path=args.get("path", target[0].get_dir()).rstr(),
                      stdout_path=stdout,
                      stderr_path=stderr,
                      other=args.get("other", ["#PBS -W group_list=yeticcls"]),
@@ -238,6 +247,50 @@ Usage: /mnt/calculon-minor/lorelei_svn/KWS/bin64/wrd2phlattice [-opts] [output_d
     #else:
     #    meta_open(target[0].rstr(), "w").write("%s" % (time.time()))
     return None
+
+
+def word_to_phone_lattice(target, source, env):
+    """
+    NEEDS WORK!
+    The most substantial computational work.  Uses the IBM binary 'wrd2phlattice'
+
+Usage: /mnt/calculon-minor/lorelei_svn/KWS/bin64/wrd2phlattice [-opts] [output_dir] [lattice_list_file]               
+-d file          pronunciation dictionary                                       
+-D file          data file, 6 fields per line: latid startime endtime fsmfullpath osymfulpath latfulpath 
+-s file          word(pron) symtable                                            
+-c               if specified, loaded lattice is expected to be in "cons" format 
+-t               if specified: input lattices are assumed to have fsm.gz format 
+                 o/w: input lattices are assumed to have openfst binary format  
+-m               if specified: states are merged according to frame             
+                 NOTE: only possible if lattice is in fsm.gz format (-t=true)   
+-e string        extension in lattice names (default: lat.gz)                   
+-o file          file with oovregions, if specified, oovregions are marked      
+-S string        comma-separated string of symbols to be replaced by eps        
+-P double        pruning threshold (default: -1, no pruning)                    
+-v               if specified, print debug output to stderr                     
+-?               info/options
+    """
+    args = source[-1].read()
+    data_list, lattice_list, wordpron, dic = source[0:4]
+    args["DICTIONARY"] = dic.rstr()
+    args["DATA_FILE"] = data_list.rstr()
+    args["FSMGZ_FORMAT"] = "true"
+    args["CONFUSION_NETWORK"] = ""
+    args["FSM_DIR"] = "temp"
+    args["WORDPRONSYMTABLE"] = wordpron.rstr()
+    cmd = env.subst("${WRD2PHLATTICE}")
+    argstr = "-d %(DICTIONARY)s -D %(DATA_FILE)s -t %(FSMGZ_FORMAT)s -s %(WORDPRONSYMTABLE)s -S %(EPSILON_SYMBOLS)s %(CONFUSION_NETWORK)s -P %(PRUNE_THRESHOLD)d %(FSM_DIR)s" % args
+    #argstr = "-d %(DICTIONARY)s -D %(DATA_FILE)s -t -s %(WORDPRONSYMTABLE)s -S %(EPSILON_SYMBOLS)s %(CONFUSION_NETWORK)s -P %(PRUNE_THRESHOLD)d %(FSM_DIR)s" % args
+    if not os.path.exists(os.path.dirname(target[0].rstr())):
+        os.makedirs(os.path.dirname(target[0].rstr()))
+    stdout, stderr, success = run_command("%s %s" % (cmd, argstr), env={"LD_LIBRARY_PATH" : env.subst(env["LIBRARY_OVERLAY"])}, stdin=meta_open(lattice_list.rstr()), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if not success:
+        return stderr
+    else:
+        meta_open(target[0].rstr(), "w").write("%s" % (time.time()))
+    return None
+
+
 
 def get_file_list(target, source, env):
     """

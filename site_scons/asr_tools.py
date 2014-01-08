@@ -778,7 +778,7 @@ def run_g2p(target, source, env):
         #pl = ProbabilityList(pl_fd)
         with meta_open(tfname, "w") as t_fd:
             t_fd.write("\n".join(words))
-        out, err, success = run_command("python %s/g2p.py --model %s --encoding=%s --apply %s --variants-mass=%f  --variants-number=%d" % (env["G2P"], source[1].rstr(), "utf-8", tfname, .9, 4),
+        out, err, success = run_command("%s %s/bin/g2p.py --model %s --encoding=%s --apply %s --variants-mass=%f  --variants-number=%d" % (env["PYTHON"], env["OVERLAY"], source[1].rstr(), "utf-8", tfname, .9, 4),
                                         env={"PYTHONPATH" : env.subst("${OVERLAY}/lib/python2.7/site-packages")},
                                         )
         if not success:
