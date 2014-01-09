@@ -313,7 +313,7 @@ for (language, language_id, expid), config in env["LANGUAGES"].iteritems():
         [pjoin("work", "transcripts", language, "%s_transcripts.txt.gz" % (name)) for name in ["full", "limited", "development"]],
         env.Dir(pjoin(env["LANGUAGE_PACKS"], str(language_id))))
 
-    full_vocabulary, limited_vocabulary, dev_vocabulary = [env.TranscriptsToVocabulary(pjoin("work", "vocabularies", language, "%s_vocabularies.txt.gz" % (name)), transcripts) for name, transcripts in zip(["full", "limited", "development"], [full_transcripts, limited_transcripts, dev_transcripts])]
+    full_vocabulary, limited_vocabulary, dev_vocabulary = [env.TranscriptsToVocabulary(pjoin("work", "vocabularies", language, "%s.txt.gz" % (name)), transcripts) for name, transcripts in zip(["full", "limited", "development"], [full_transcripts, limited_transcripts, dev_transcripts])]
     
     limited_basic_expansions_file = env.File(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "expansions", "simple.ex"))
     limited_bigram_expansions_file = env.File(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "expansions", "bigram.ex"))
@@ -333,7 +333,7 @@ for (language, language_id, expid), config in env["LANGUAGES"].iteritems():
 
     figures[(language, "Limited")] = env.PlotReduction(limited_basic_expansions + limited_bigram_expansions + [limited_vocabulary, dev_vocabulary, env.Value({"bins" : 1000})])
     #figures[(language, "Limited")]["language"] = language
-
+    continue
     if os.path.exists(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "tools/g2p/model-6")):
         exp_path = pjoin("work", "pronunciations", language, "limited")
         g2p = env.RunG2P(pjoin(exp_path, "basic.gz"), # % (os.path.splitext(os.path.basename(expansion.rstr()))[0])), 

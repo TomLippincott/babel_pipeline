@@ -672,7 +672,8 @@ def plot_reduction(target, source, env):
     bins = args["bins"]
     with meta_open(source[-3].rstr()) as in_voc_fd, meta_open(source[-2].rstr()) as all_voc_fd:
         in_vocabulary = FrequencyList(in_voc_fd).make_conservative()
-        all_vocabulary = FrequencyList(all_voc_fd).make_conservative().join(in_vocabulary)
+        other_vocabulary = FrequencyList(all_voc_fd).make_conservative()
+        all_vocabulary = other_vocabulary.join(in_vocabulary)
         out_of_vocabulary = set([x for x in all_vocabulary.keys() if x not in in_vocabulary])
         num_iv_types = len(in_vocabulary)
         num_iv_tokens = sum([all_vocabulary.get(x, 0) for x in in_vocabulary])
@@ -682,7 +683,8 @@ def plot_reduction(target, source, env):
         num_oov_tokens = num_tokens - num_iv_tokens
         logging.info("%d/%d in-vocabulary types", num_iv_types, num_types)
         logging.info("%d/%d in-vocabulary tokens", num_iv_tokens, num_tokens)
-        pyplot.figure(figsize=(8 * 2, 7))
+        #pyplot.figure(figsize=(8 * 2, 7))
+        pyplot.figure(figsize=(8, 7))
         for expansion_fname in source[0:-3]:
             good_tokens = 0
             good_types = 0
@@ -709,30 +711,37 @@ def plot_reduction(target, source, env):
                     token_based[i + 1] = good_tokens
                 logging.info("%d recovered types", good_types)
                 logging.info("%d recovered tokens", good_tokens)
-            pyplot.subplot(1, 2, 1)
-            pyplot.plot(type_based, label=name)
-            pyplot.subplot(1, 2, 2)
-            pyplot.plot(token_based, label=name)
+            #pyplot.subplot(1, 2, 1)
+            logging.info("%s at %d, %d/%d recovered types", name, (type_based.shape[0] / 2) * bin_size, type_based[type_based.shape[0] / 2], num_oov_types)
+            pyplot.plot(100 * type_based / float(num_oov_types), label=name)
+            #pyplot.subplot(1, 2, 2)
+            #pyplot.plot(token_based, label=name)
 
-        pyplot.subplot(1, 2, 1)
-        pyplot.title("Type-based")
-        pyplot.xlabel("Expansion threshold (in 1000s of words)")        
-        pyplot.ylabel("%% OOV reduction/IV increase (%d initially OOV types)" % (num_oov_types))
+        #pyplot.subplot(1, 2, 1)
+        #pyplot.title("Type-based")
+        #pyplot.xlabel("Expansion threshold (in 1000s of words)")        
+        pyplot.ylabel("% OOV reduction")
         pyplot.legend(loc="lower right", fontsize=10)
         pyplot.xticks([x * bin_size for x in range(11)], [(x * bin_size) / 10 for x in range(11)])
+        #print type_based.max()
         yinc = float(type_based.max()) / 9
-        pyplot.yticks([x * yinc for x in range(10)], ["%d/%d" % (int(100 * x * yinc / float(num_oov_types)), int(100 * x * yinc / float(num_iv_types))) for x in range(10)], fontsize=8)
+        #yinc = 2409.0 / 9
+        #pyplot.yticks([x * yinc for x in range(10)], ["%d" % (int(100 * x * yinc / float(num_oov_types))) for x in range(10)])
+        yinc = 35.0 / 9
+        pyplot.yticks([x * yinc  for x in range(10)], ["%d" % (x * yinc) for x in range(10)])
+        #pyplot.yticks([x * yinc for x in range(10)], ["%d/%d" % (int(100 * x * yinc / float(num_oov_types)), int(100 * x * yinc / float(num_iv_types))) for x in range(10)], fontsize=8)
         pyplot.grid()
 
-        pyplot.subplot(1, 2, 2)
-        pyplot.title("Token-based")
-        pyplot.xlabel("Expansion threshold (in 1000s of words)")
-        pyplot.ylabel("%% OOV reduction/IV increase (%d initially OOV tokens)" % (num_oov_tokens))
-        pyplot.legend(loc="lower right", fontsize=10)
-        pyplot.xticks([x * bin_size for x in range(11)], [(x * bin_size) / 10 for x in range(11)])
-        yinc = float(token_based.max()) / 9
-        pyplot.yticks([x * yinc for x in range(10)], ["%d/%d" % (int(100 * x * yinc / float(num_oov_tokens)), int(100 * x * yinc / float(num_iv_tokens))) for x in range(10)], fontsize=8)
-        pyplot.grid()
+        #pyplot.subplot(1, 2, 2)
+        #pyplot.title("Token-based")
+        pyplot.xlabel("1000s of words")
+        #pyplot.ylabel("%% OOV reduction/IV increase (%d initially OOV tokens)" % (num_oov_tokens))
+        #pyplot.legend(loc="lower right", fontsize=10)
+        #pyplot.xticks([x * bin_size for x in range(11)], [(x * bin_size) / 10 for x in range(11)])
+        #yinc = float(token_based.max()) / 9
+        #pyplot.yticks([x * yinc for x in range(10)], ["%d" % (int(100 * x * yinc / float(num_oov_tokens))) for x in range(10)])
+        #pyplot.yticks([x * yinc for x in range(10)], ["%d/%d" % (int(100 * x * yinc / float(num_oov_tokens)), int(100 * x * yinc / float(num_iv_tokens))) for x in range(10)], fontsize=8)
+        #pyplot.grid()
 
         pyplot.savefig(target[0].rstr())
         pyplot.cla()
