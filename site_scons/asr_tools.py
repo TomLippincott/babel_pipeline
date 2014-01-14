@@ -783,8 +783,7 @@ def top_words(target, source, env):
 
 def run_g2p(target, source, env):
     with temp_file() as tfname, meta_open(source[0].rstr()) as pl_fd:
-        words = [x.split()[0] for x in pl_fd]
-        #pl = ProbabilityList(pl_fd)
+        words = set([x.split()[0].split("(")[0] for x in pl_fd])
         with meta_open(tfname, "w") as t_fd:
             t_fd.write("\n".join(words))
         out, err, success = run_command("%s %s/bin/g2p.py --model %s --encoding=%s --apply %s --variants-mass=%f  --variants-number=%d" % (env["PYTHON"], env["OVERLAY"], source[1].rstr(), "utf-8", tfname, .9, 4),
@@ -826,6 +825,31 @@ def g2p_to_babel(target, source, env):
                 out_fd.write("%s(%.2d) %s\n" % (word, count, pronun))
     return None
 
+def pronunciation_performance(target, source, env):
+    with meta_open(source[0].rstr()) as gold_fd, meta_open(source[1].rstr()) as gen_fd:
+        tp, fp, fn = 0, 0, 0
+        gold = Pronunciations(gold_fd)
+        gen = Pronunciations(gen_fd)
+        logging.info("gold phone inventory: %s", " ".join(gold.phones()))
+        logging.info("generated phone inventory: %s", " ".join(gen.phones()))
+        for x in gen.get_words().intersection(gold.get_words()):
+            gold_prons = set(map(tuple, [map(str.lower, y) for y in gold[x].values()]))
+            gen_prons = set(map(tuple, [map(str.lower, y) for y in gen[x].values()]))            
+            for go_p in gold_prons:
+                if go_p in gen_prons:
+                    tp += 1
+                else:
+                    fn += 1
+            for ge_p in gen_prons:
+                if ge_p not in gold_prons:
+                    fp += 1
+        prec = float(tp) / (tp + fp)
+        rec = float(tp) / (tp + fn)
+        f = 2 * (prec * rec) / (prec + rec)
+        with meta_open(target[0].rstr(), "w") as ofd:
+            ofd.write("%f %f %f\n" % (prec, rec, f))
+    return None
+
 def TOOLS_ADD(env):
     env.Append(BUILDERS = {"SplitTrainDev" : Builder(action=split_train_dev),
                            "AppenToAttila" : Builder(action=appen_to_attila),
@@ -857,5 +881,6 @@ def TOOLS_ADD(env):
                            "TopWords" : Builder(action=top_words),
                            "RunG2P" : Builder(action=run_g2p),
                            "G2PToBabel" : Builder(action=g2p_to_babel),
+                           "PronunciationPerformance" : Builder(action=pronunciation_performance),
                            })
                

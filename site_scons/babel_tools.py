@@ -24,8 +24,7 @@ from babel import ProbabilityList, Arpabo, Pronunciations, Vocabulary, Frequency
 from os.path import join as pjoin
 from common_tools import meta_open
 
-def run_asr(target, source, env):
-    
+def run_asr(target, source, env):    
     return None
 
 def run_asr_emitter(target, source, env):
@@ -68,7 +67,7 @@ def build_extrinsic_tables_emitter(target, source, env):
     return target, new_sources
 
 def build_property_tables(target, source, env):
-    properties, results = [x.read() for x in source[0:2]]
+    properties = source[0].read() #[x.read() for x in source[0:2]]
     languages = set([x[0] for x in properties.keys()])
     lookup = {"PRE" : "Prefixes",
               "STM" : "Stems",
@@ -158,10 +157,9 @@ def build_property_tables(target, source, env):
     return None
 
 def build_property_tables_emitter(target, source, env):
-    properties,results = [x.read() for x in source[0:3]]
+    properties = source[0].read()
     new_sources = [env.Value(files_to_strings(properties)),
-                   env.Value(files_to_strings(results)),
-                   ] + sum(map(leaves, [properties, results]), [])
+                   ] + sum(map(leaves, [properties]), [])
     return target, new_sources
 
 
