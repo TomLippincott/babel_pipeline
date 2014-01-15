@@ -148,7 +148,7 @@ def run_experiment(jobs=20, default_files={}, default_directories={}, default_pa
 
     asr_output = env.RunASRExperiment(source=experiment, ACOUSTIC_WEIGHT=args["ACOUSTIC_WEIGHT"])
     asr_score = env.ScoreResults(env.Dir(pjoin(args["ASR_OUTPUT_PATH"], "scoring")),
-                                 [env.Dir(os.path.abspath(pjoin(args["ASR_OUTPUT_PATH"], "ctm"))), files["STM_FILE"]])
+                                 [env.Dir(os.path.abspath(pjoin(args["ASR_OUTPUT_PATH"], "ctm"))), files["STM_FILE"], asr_output])
 
     #
     # KEYWORD SEARCH
