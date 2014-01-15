@@ -313,17 +313,8 @@ for language, config in env["LANGUAGES"].iteritems():
 
 
 
-    # if os.path.exists(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "tools/g2p/model-6")):    
-    #     continue
-    #     exp_path = pjoin("work", "pronunciations", language, "limited")
-    #     g2p = env.RunG2P(pjoin(exp_path, "basic.gz"), # % (os.path.splitext(os.path.basename(expansion.rstr()))[0])), 
-    #                      [limited_basic_expansions_file, pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "tools/g2p/model-6")])
-    #     env.NoClean(g2p)
-    #     all_pronunciations = env.G2PToBabel(pjoin(exp_path, "basic_prons.gz"), # % (os.path.splitext(os.path.basename(expansion.rstr()))[0])), 
-    #                                         [g2p, env.Value(config["PHONEME_SWAP"])])
+    #if os.path.exists(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "tools/g2p/model-6")):    
 
-    #     limited_pronunciations_file = env.Glob(pjoin(env["LORELEI_SVN"], str(language_id), "LimitedLP", "kws-resources", "*", "dict.all.v2p"))[0]
-    #     env.PronunciationPerformance(pjoin(exp_path, "pronunciation_performance.txt"), [all_pronunciations, limited_pronunciations_file])
 
     properties[(language, "Limited")] = {"prefixes" : prefixes,
                                          "stems" : stems,
@@ -342,6 +333,15 @@ for language, config in env["LANGUAGES"].iteritems():
 
         #full_pronunciations_file = env.File(pjoin(env["LORELEI_SVN"], str(language_id), "FullLP", "models", "dict.test"))
         #limited_pronunciations_file = env.File(pjoin(env["LORELEI_SVN"], str(language_id), "LimitedLP", "models", "dict.test"))
+
+        exp_path = pjoin("work", "pronunciations", language, "limited")
+        g2p = env.RunG2P(pjoin(exp_path, "basic.gz"), # % (os.path.splitext(os.path.basename(expansion.rstr()))[0])), 
+                         [limited_basic_expansions_file, pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "tools/g2p/model-6")])
+        env.NoClean(g2p)
+        all_pronunciations = env.G2PToBabel(pjoin(exp_path, "basic_prons.gz"), # % (os.path.splitext(os.path.basename(expansion.rstr()))[0])), 
+                                            [g2p, env.Value(config["PHONEME_SWAP"])])
+
+
 
         limited_pronunciations_file = env.File(pjoin(env["IBM_MODELS"], str(language_id), "LLP", "models", "dict.test")) #config["pronunciations"]
         limited_vocabulary_file = env.File(pjoin(env["IBM_MODELS"], str(language_id), "LLP", "models", "vocab"))
