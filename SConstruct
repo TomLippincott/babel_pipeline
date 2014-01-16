@@ -24,6 +24,7 @@ vars.AddVariables(
     ("RUN_KWS", "", False),
 
     ("EXPANSION_SIZES", "", []),
+    ("EXPANSION_WEIGHTS", "", []),
 
     ("LANGUAGE_PACKS", "", None),
     ("IBM_MODELS", "", None),
@@ -448,28 +449,30 @@ for language, config in env["LANGUAGES"].iteritems():
                 words, pronunciations = env.TopWords([pjoin(exp_path, "probability_list.gz"), pjoin(exp_path, "pronunciations.gz")], 
                                                      [expansion, all_pronunciations, env.Value({"COUNT" : size})])
 
-                babelgum_vocabulary, babelgum_pronunciations, babelgum_language_model = env.AugmentLanguageModel(
-                    [pjoin(exp_path, x) for x in ["vocabulary.txt", "pronunciations.txt", os.path.basename(limited_language_model_file.rstr())]],
-                    [limited_pronunciations_file, limited_language_model_file, pronunciations, env.Value(.1)]
-                    )
+                for weight in env["EXPANSION_WEIGHTS"]:
+                    exp_path = pjoin("work", language, pack, "babelgum_%d_%f" % (size, weight))
+                    babelgum_vocabulary, babelgum_pronunciations, babelgum_language_model = env.AugmentLanguageModel(
+                        [pjoin(exp_path, x) for x in ["vocabulary.txt", "pronunciations.txt", os.path.basename(limited_language_model_file.rstr())]],
+                        [limited_pronunciations_file, limited_language_model_file, pronunciations, env.Value(weight)]
+                        )
                 
-                babelgum_results = language_pack_run(OUTPUT_PATH=exp_path,
-                                                     VOCABULARY_FILE=babelgum_vocabulary,
-                                                     PRONUNCIATIONS_FILE=babelgum_pronunciations,
-                                                     LANGUAGE_MODEL_FILE=babelgum_language_model,
-                                                     )
+                    babelgum_results = language_pack_run(OUTPUT_PATH=exp_path,
+                                                         VOCABULARY_FILE=babelgum_vocabulary,
+                                                         PRONUNCIATIONS_FILE=babelgum_pronunciations,
+                                                         LANGUAGE_MODEL_FILE=babelgum_language_model,
+                                                         )
 
-                exp_path = pjoin("work", language, pack, "weighted_babelgum_%d" % size)
-                weighted_babelgum_vocabulary, weighted_babelgum_pronunciations, weighted_babelgum_language_model = env.AugmentLanguageModel(
-                    [pjoin(exp_path, x) for x in ["vocabulary.txt", "pronunciations.txt", os.path.basename(limited_language_model_file.rstr())]],
-                    [limited_pronunciations_file, limited_language_model_file, pronunciations, words, env.Value(.1)]
-                    )
+                    exp_path = pjoin("work", language, pack, "weighted_babelgum_%d_%f" % (size, weight))
+                    weighted_babelgum_vocabulary, weighted_babelgum_pronunciations, weighted_babelgum_language_model = env.AugmentLanguageModel(
+                        [pjoin(exp_path, x) for x in ["vocabulary.txt", "pronunciations.txt", os.path.basename(limited_language_model_file.rstr())]],
+                        [limited_pronunciations_file, limited_language_model_file, pronunciations, words, env.Value(.1)]
+                        )
 
-                weighted_babelgum_results = language_pack_run(OUTPUT_PATH=exp_path,
-                                                              VOCABULARY_FILE=weighted_babelgum_vocabulary,
-                                                              PRONUNCIATIONS_FILE=weighted_babelgum_pronunciations,
-                                                              LANGUAGE_MODEL_FILE=weighted_babelgum_language_model,
-                                                              )
+                    weighted_babelgum_results = language_pack_run(OUTPUT_PATH=exp_path,
+                                                                  VOCABULARY_FILE=weighted_babelgum_vocabulary,
+                                                                  PRONUNCIATIONS_FILE=weighted_babelgum_pronunciations,
+                                                                  LANGUAGE_MODEL_FILE=weighted_babelgum_language_model,
+                                                                  )
 
 
         # for method, (probs, prons) in config["expansions"].iteritems():
