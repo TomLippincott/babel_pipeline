@@ -175,7 +175,7 @@ def split_list(target, source, env):
             meta_open(fname.rstr(), "w").write("".join(lines[start : end]))
     return None
 
-def word_to_phone_lattice_(target, source, env):
+def word_to_phone_lattice(target, source, env):
     """
     NEEDS WORK!
     The most substantial computational work.  Uses the IBM binary 'wrd2phlattice'
@@ -198,13 +198,16 @@ Usage: /mnt/calculon-minor/lorelei_svn/KWS/bin64/wrd2phlattice [-opts] [output_d
     """
     args = source[-1].read()
     data_list, lattice_list, wordpron, dic = source[0:4]
-    args["DICTIONARY"] = dic.rstr()
-    args["DATA_FILE"] = data_list.rstr()
+
+
+    args["DICTIONARY"] = dic.abspath
+    args["DATA_FILE"] = data_list.abspath
     args["FSMGZ_FORMAT"] = "true"
     args["CONFUSION_NETWORK"] = ""
     args["FSM_DIR"] = "temp"
-    args["WORDPRONSYMTABLE"] = wordpron.rstr()
-    #cmd = env.subst("${WRD2PHLATTICE}")
+    args["WORDPRONSYMTABLE"] = wordpron.abspath
+
+
     argstr = "-d %(DICTIONARY)s -D %(DATA_FILE)s -t %(FSMGZ_FORMAT)s -s %(WORDPRONSYMTABLE)s -S %(EPSILON_SYMBOLS)s %(CONFUSION_NETWORK)s -P %(PRUNE_THRESHOLD)d %(FSM_DIR)s" % args
     #cmd = env.subst("${WRD2PHLATTICE} %s" % (argstr))
     #argstr = "-d %(DICTIONARY)s -D %(DATA_FILE)s -t -s %(WORDPRONSYMTABLE)s -S %(EPSILON_SYMBOLS)s %(CONFUSION_NETWORK)s -P %(PRUNE_THRESHOLD)d %(FSM_DIR)s" % args
@@ -213,7 +216,7 @@ Usage: /mnt/calculon-minor/lorelei_svn/KWS/bin64/wrd2phlattice [-opts] [output_d
 
     ##
     command = env.subst("${WRD2PHLATTICE} %s" % (argstr))
-    print command
+    #print command
     #command = env.subst("${ATTILA_INTERPRETER} ${SOURCES[2].abspath} -n ${JOBS} -j $${PBS_ARRAYID} -w ${ACOUSTIC_WEIGHT} -l 1", source=source)
     interval = args.get("interval", 10)
     args["path"] = args.get("path", target[0].get_dir())
@@ -224,13 +227,14 @@ Usage: /mnt/calculon-minor/lorelei_svn/KWS/bin64/wrd2phlattice [-opts] [output_d
     if not os.path.exists(stderr):
         os.makedirs(stderr)
     job = torque.Job(args.get("name", "scons-wrd2phlattice"),
-                     commands=[command],
+                     commands=["mkdir temp", command],
                      path=args.get("path", target[0].get_dir()).rstr(),
                      stdout_path=stdout,
                      stderr_path=stderr,
                      other=args.get("other", ["#PBS -W group_list=yeticcls"]),
                      )
     if env["HAS_TORQUE"]:
+        print str(job)
         job.submit(commit=True)
         while job.job_id in [x[0] for x in torque.get_jobs(True)]:
             logging.info("sleeping...")
@@ -249,7 +253,7 @@ Usage: /mnt/calculon-minor/lorelei_svn/KWS/bin64/wrd2phlattice [-opts] [output_d
     return None
 
 
-def word_to_phone_lattice(target, source, env):
+def word_to_phone_lattice_(target, source, env):
     """
     NEEDS WORK!
     The most substantial computational work.  Uses the IBM binary 'wrd2phlattice'
