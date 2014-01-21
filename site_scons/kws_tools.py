@@ -215,7 +215,7 @@ Usage: /mnt/calculon-minor/lorelei_svn/KWS/bin64/wrd2phlattice [-opts] [output_d
         os.makedirs(os.path.dirname(target[0].rstr()))
 
     ##
-    command = env.subst("${WRD2PHLATTICE} %s" % (argstr))
+    command = env.subst("cat ${SOURCES[1].abspath}|${WRD2PHLATTICE} %s" % (argstr), source=source)
     #print command
     #command = env.subst("${ATTILA_INTERPRETER} ${SOURCES[2].abspath} -n ${JOBS} -j $${PBS_ARRAYID} -w ${ACOUSTIC_WEIGHT} -l 1", source=source)
     interval = args.get("interval", 10)
@@ -227,7 +227,7 @@ Usage: /mnt/calculon-minor/lorelei_svn/KWS/bin64/wrd2phlattice [-opts] [output_d
     if not os.path.exists(stderr):
         os.makedirs(stderr)
     job = torque.Job(args.get("name", "scons-wrd2phlattice"),
-                     commands=["mkdir temp", command],
+                     commands=["mkdir -p temp", command],
                      path=args.get("path", target[0].get_dir()).rstr(),
                      stdout_path=stdout,
                      stderr_path=stderr,

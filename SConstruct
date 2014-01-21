@@ -52,7 +52,7 @@ vars.AddVariables(
     ("SCORE_SCRIPT", "", None),
     ("INDUS_DB", "", None),
     ("SCLITE_BINARY", "", None),
-    ("JOBS", "", 20),
+    ("JOBS", "", 4),
     ("BABEL_REPO", "", None),
     ("BABEL_RESOURCES", "", None),
     ("LORELEI_TOOLS", "", None),
@@ -426,12 +426,12 @@ for language, config in env["LANGUAGES"].iteritems():
         oracle_language_model = env.IBMTrainLanguageModel(pjoin(exp_path, "oracle_lm.%dgm.arpabo.gz" % (markov)), 
                                                           [oracle_text, oracle_text_words, env.Value(markov)])
 
-        oracle_results = language_pack_run(OUTPUT_PATH=exp_path,
-                                           VOCABULARY_FILE=oracle_vocabulary[0],
-                                           PRONUNCIATIONS_FILE=oracle_pronunciations,
-                                           LANGUAGE_MODEL_FILE=oracle_language_model[0],
-                                           PHONE_FILE=oracle_pnsp,
-                                           )
+        # oracle_results = language_pack_run(OUTPUT_PATH=exp_path,
+        #                                    VOCABULARY_FILE=oracle_vocabulary[0],
+        #                                    PRONUNCIATIONS_FILE=oracle_pronunciations,
+        #                                    LANGUAGE_MODEL_FILE=oracle_language_model[0],
+        #                                    PHONE_FILE=oracle_pnsp,
+        #                                    )
         
         #results[(language, "Limited")]["Oracle"] = oracle_results
 
