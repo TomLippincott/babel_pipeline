@@ -22,6 +22,7 @@ vars.AddVariables(
 
     ("RUN_ASR", "", False),
     ("RUN_KWS", "", False),
+    ("EVALUATE_PRONUNCIATIONS", "", False),
 
     ("EXPANSION_SIZES", "", []),
     ("EXPANSION_WEIGHTS", "", []),
@@ -53,6 +54,7 @@ vars.AddVariables(
     ("INDUS_DB", "", None),
     ("SCLITE_BINARY", "", None),
     ("JOBS", "", 4),
+    ("LOCAL_JOBS", "", 4),
     ("BABEL_REPO", "", None),
     ("BABEL_RESOURCES", "", None),
     ("LORELEI_TOOLS", "", None),
@@ -119,7 +121,7 @@ def print_cmd_line(s, target, source, env):
 env['PRINT_CMD_LINE_FUNC'] = print_cmd_line
 
 
-def run_experiment(jobs=20, default_files={}, default_directories={}, default_parameters={}, **args):
+def run_asr_experiment(jobs=20, default_files={}, default_directories={}, default_parameters={}, **args):
     files = {k : v for k, v in default_files.iteritems()}
     directories = {k : v for k, v in default_directories.iteritems()}
     parameters = {k : v for k, v in default_parameters.iteritems()}
@@ -139,135 +141,145 @@ def run_experiment(jobs=20, default_files={}, default_directories={}, default_pa
     experiment = env.CreateASRExperiment(Dir(args["ASR_OUTPUT_PATH"]), [env.Value(x) for x in [files, directories, parameters]])
 
     if not env["RUN_ASR"]:
-        return (None, None)
+        asr_output = env.Dir(args["ASR_OUTPUT_PATH"])
+    else:
+        asr_output = env.RunASRExperiment(source=experiment, ACOUSTIC_WEIGHT=args["ACOUSTIC_WEIGHT"])
+    return asr_output
 
-    if not env["HAS_TORQUE"]:
-        return (env.File(pjoin(args["ASR_OUTPUT_PATH"], "scoring", "babel.sys")),
-                env.File(pjoin(args["KWS_OUTPUT_PATH"], "output", "Full-Occur-MITLLFA3-AppenWordSeg.sum.txt")),
-                )
-
-
-    asr_output = env.RunASRExperiment(source=experiment, ACOUSTIC_WEIGHT=args["ACOUSTIC_WEIGHT"])
-    asr_score = env.ScoreResults(env.Dir(pjoin(args["ASR_OUTPUT_PATH"], "scoring")),
-                                 [env.Dir(os.path.abspath(pjoin(args["ASR_OUTPUT_PATH"], "ctm"))), files["STM_FILE"], asr_output])
-
+def run_kws_experiment(asr_output, jobs=20, default_files={}, default_directories={}, default_parameters={}, **args):
+    #asr_score = env.ScoreResults(env.Dir(pjoin(args["ASR_OUTPUT_PATH"], "scoring")),
+    #                         [env.Dir(os.path.abspath(pjoin(args["ASR_OUTPUT_PATH"], "ctm"))), files["STM_FILE"], asr_output])
+    oov_only = args.get("OOV_ONLY", False)
+    files = {k : v for k, v in default_files.iteritems()}
+    directories = {k : v for k, v in default_directories.iteritems()}
+    parameters = {k : v for k, v in default_parameters.iteritems()}
+    args["ASR_OUTPUT_PATH"] = asr_output.rstr() #pjoin(args["OUTPUT_PATH"], "asr")
+    args["KWS_OUTPUT_PATH"] = args["OUTPUT_PATH"]
+    for k, v in args.iteritems():
+        if k.endswith("FILE"):
+            files[k] = v
+        elif k.endswith("PATH"):
+            directories[k] = v
+        else:
+            parameters[k] = v
     #
     # KEYWORD SEARCH
     #
     if not env["RUN_KWS"]:
         return (None, None)
+    else:
+
+        # just make some local variables from the experiment definition (for convenience)
+        iv_dict = args["VOCABULARY_FILE"]
+        oov_dict = args["OOV_DICTIONARY_FILE"]
+        dbfile = args["DATABASE_FILE"]
+        kw_file = args["KEYWORDS_FILE"]
+        language_id = args["LANGUAGE_ID"]
+
+        iv_query_terms, oov_query_terms, term_map, word_to_word_fst, kw_file = env.QueryFiles([pjoin(args["KWS_OUTPUT_PATH"], x) for x in ["iv_queries.txt", 
+                                                                                                                                           "oov_queries.txt",
+                                                                                                                                           "term_map.txt",
+                                                                                                                                           "word_to_word.fst",
+                                                                                                                                           "kwfile.xml"]], 
+                                                                                              [kw_file, iv_dict, env.Value(language_id), env.Value(str(args.get("REMOVE_VOCABULARY_FILE", "")))])
+
+        # JOBS LATTICE_DIRECTORY KW_FILE RTTM_FILE
+        base_path = args["OUTPUT_PATH"]
+        args["LATTICE_DIRECTORY"] = pjoin(args["ASR_OUTPUT_PATH"], "lat")
+        args["JOBS"] = 4
+        args["KW_FILE"] = args["KEYWORDS_FILE"]
 
 
-    # just make some local variables from the experiment definition (for convenience)
-    iv_dict = args["VOCABULARY_FILE"]
-    oov_dict = args["OOV_DICTIONARY_FILE"]
-    dbfile = args["DATABASE_FILE"]
-    kw_file = args["KEYWORDS_FILE"]
-    language_id = args["LANGUAGE_ID"]
+        full_lattice_list = env.LatticeList(pjoin(args["KWS_OUTPUT_PATH"], "lattice_list.txt"),
+                                            [dbfile, env.Value(args["LATTICE_DIRECTORY"])])
 
-    iv_query_terms, oov_query_terms, term_map, word_to_word_fst, kw_file = env.QueryFiles([pjoin(args["KWS_OUTPUT_PATH"], x) for x in ["iv_queries.txt", 
-                                                                                                                                       "oov_queries.txt",
-                                                                                                                                       "term_map.txt",
-                                                                                                                                       "word_to_word.fst",
-                                                                                                                                       "kwfile.xml"]], 
-                                                                                          [kw_file, iv_dict, env.Value(language_id)])
+        lattice_lists = env.SplitList([pjoin(args["KWS_OUTPUT_PATH"], "lattice_list_%d.txt" % (n + 1)) for n in range(args["JOBS"])], full_lattice_list)
 
-    # JOBS LATTICE_DIRECTORY KW_FILE RTTM_FILE
-    base_path = args["OUTPUT_PATH"]
-    args["LATTICE_DIRECTORY"] = pjoin(args["ASR_OUTPUT_PATH"], "lat")
-    args["JOBS"] = 4
-    args["KW_FILE"] = args["KEYWORDS_FILE"]
+        wordpron = env.WordPronounceSymTable(pjoin(args["KWS_OUTPUT_PATH"], "in_vocabulary_symbol_table.txt"),
+                                             iv_dict)
 
-    
-    full_lattice_list = env.LatticeList(pjoin(args["KWS_OUTPUT_PATH"], "lattice_list.txt"),
-                                        [dbfile, env.Value(args["LATTICE_DIRECTORY"])])
+        isym = env.CleanPronounceSymTable(pjoin(args["KWS_OUTPUT_PATH"], "cleaned_in_vocabulary_symbol_table.txt"),
+                                          wordpron)
 
-    lattice_lists = env.SplitList([pjoin(args["KWS_OUTPUT_PATH"], "lattice_list_%d.txt" % (n + 1)) for n in range(args["JOBS"])], full_lattice_list)
+        mdb = env.MungeDatabase(pjoin(args["KWS_OUTPUT_PATH"], "munged_database.txt"),
+                                [dbfile, full_lattice_list])
 
-    wordpron = env.WordPronounceSymTable(pjoin(args["KWS_OUTPUT_PATH"], "in_vocabulary_symbol_table.txt"),
-                                         iv_dict)
+        padfst = env.BuildPadFST(pjoin(args["KWS_OUTPUT_PATH"], "pad_fst.txt"),
+                                 wordpron)
 
-    isym = env.CleanPronounceSymTable(pjoin(args["KWS_OUTPUT_PATH"], "cleaned_in_vocabulary_symbol_table.txt"),
-                                      wordpron)
+        #env.Depends([wordpron, iv_query_terms, full_lattice_list], asr_score)
 
-    mdb = env.MungeDatabase(pjoin(args["KWS_OUTPUT_PATH"], "munged_database.txt"),
-                            [dbfile, full_lattice_list])
+        full_data_list = env.CreateDataList(pjoin(args["KWS_OUTPUT_PATH"], "full_data_list.txt"),
+                                            [mdb] + [env.Value({"oldext" : "fsm.gz", 
+                                                                "ext" : "fst",
+                                                                "subdir_style" : "hub4",
+                                                                "LATTICE_DIR" : args["LATTICE_DIRECTORY"],
+                                                                })], BASE_PATH=args["KWS_OUTPUT_PATH"])
 
-    padfst = env.BuildPadFST(pjoin(args["KWS_OUTPUT_PATH"], "pad_fst.txt"),
-                             wordpron)
+        ecf_file = env.ECFFile(pjoin(args["KWS_OUTPUT_PATH"], "ecf.xml"), mdb)
 
-    env.Depends([wordpron, iv_query_terms, full_lattice_list], asr_score)
+        data_lists = env.SplitList([pjoin(args["KWS_OUTPUT_PATH"], "data_list_%d.txt" % (n + 1)) for n in range(args["JOBS"])], full_data_list)
 
-    full_data_list = env.CreateDataList(pjoin(args["KWS_OUTPUT_PATH"], "full_data_list.txt"),
-                                        [mdb] + [env.Value({"oldext" : "fsm.gz", 
-                                                            "ext" : "fst",
-                                                            "subdir_style" : "hub4",
-                                                            "LATTICE_DIR" : args["LATTICE_DIRECTORY"],
-                                                            })], BASE_PATH=args["KWS_OUTPUT_PATH"])
+        p2p_fst = env.FSTCompile(pjoin(args["KWS_OUTPUT_PATH"], "p2p_fst.txt"),
+                                 [isym, word_to_word_fst])
 
-    ecf_file = env.ECFFile(pjoin(args["KWS_OUTPUT_PATH"], "ecf.xml"), mdb)
-
-    data_lists = env.SplitList([pjoin(args["KWS_OUTPUT_PATH"], "data_list_%d.txt" % (n + 1)) for n in range(args["JOBS"])], full_data_list)
-    
-    p2p_fst = env.FSTCompile(pjoin(args["KWS_OUTPUT_PATH"], "p2p_fst.txt"),
-                             [isym, word_to_word_fst])
-
-    wtp_lattices = []
+        wtp_lattices = []
 
 
-    for i, (data_list, lattice_list) in enumerate(zip(data_lists, lattice_lists)):
-        wp = env.WordToPhoneLattice(pjoin(args["KWS_OUTPUT_PATH"], "lattices", "lattice_generation-%d.stamp" % (i + 1)), 
-                                    [data_list, lattice_list, wordpron, iv_dict, env.Value({"PRUNE_THRESHOLD" : -1,
-                                                                                            "EPSILON_SYMBOLS" : "'<s>,</s>,~SIL,<HES>'",
-                                                                                            })])
+        for i, (data_list, lattice_list) in enumerate(zip(data_lists, lattice_lists)):
+            wp = env.WordToPhoneLattice(pjoin(args["KWS_OUTPUT_PATH"], "lattices", "lattice_generation-%d.stamp" % (i + 1)), 
+                                        [data_list, lattice_list, wordpron, iv_dict, env.Value({"PRUNE_THRESHOLD" : -1,
+                                                                                                "EPSILON_SYMBOLS" : "'<s>,</s>,~SIL,<HES>'",
+                                                                                                })])
 
-        fl = env.GetFileList(pjoin(args["KWS_OUTPUT_PATH"], "file_list-%d.txt" % (i + 1)), 
-                             [data_list, wp])
-        idx = env.BuildIndex(pjoin(args["KWS_OUTPUT_PATH"], "index-%d.fst" % (i + 1)),
-                             fl)
+            fl = env.GetFileList(pjoin(args["KWS_OUTPUT_PATH"], "file_list-%d.txt" % (i + 1)), 
+                                 [data_list, wp])
+            idx = env.BuildIndex(pjoin(args["KWS_OUTPUT_PATH"], "index-%d.fst" % (i + 1)),
+                                 fl)
 
-        wtp_lattices.append((wp, data_list, lattice_list, fl, idx))
+            wtp_lattices.append((wp, data_list, lattice_list, fl, idx))
 
-    merged = {}
-    for query_type, query_file in zip(["in_vocabulary", "out_of_vocabulary"], [iv_query_terms, oov_query_terms]):
-        queries = env.QueryToPhoneFST(pjoin(args["KWS_OUTPUT_PATH"], query_type, "query.fst"), 
-                                      [p2p_fst, isym, iv_dict, query_file, env.Value({"n" : 1, "I" : 1, "OUTDIR" : pjoin(args["KWS_OUTPUT_PATH"], query_type, "queries")})])
-        searches = []
-        for i, (wtp_lattice, data_list, lattice_list, fl, idx) in enumerate(wtp_lattices):
-            searches.append(env.StandardSearch(pjoin(args["KWS_OUTPUT_PATH"], query_type, "search_output-%d.txt" % (i + 1)),
-                                               [data_list, isym, idx, padfst, queries, env.Value({"PRECISION" : "'%.4d'", "TITLE" : "std.xml", "LANGUAGE_ID" : language_id})]))
+        merged = {}
+        for query_type, query_file in zip(["in_vocabulary", "out_of_vocabulary"], [iv_query_terms, oov_query_terms]):
+            queries = env.QueryToPhoneFST(pjoin(args["KWS_OUTPUT_PATH"], query_type, "query.fst"), 
+                                          [p2p_fst, isym, iv_dict, query_file, env.Value({"n" : 1, "I" : 1, "OUTDIR" : pjoin(args["KWS_OUTPUT_PATH"], query_type, "queries")})])
+            searches = []
+            for i, (wtp_lattice, data_list, lattice_list, fl, idx) in enumerate(wtp_lattices):
+                searches.append(env.StandardSearch(pjoin(args["KWS_OUTPUT_PATH"], query_type, "search_output-%d.txt" % (i + 1)),
+                                                   [data_list, isym, idx, padfst, queries, env.Value({"PRECISION" : "'%.4d'", "TITLE" : "std.xml", "LANGUAGE_ID" : language_id})]))
 
 
 
-        qtl, res_list, res, ures = env.Merge([pjoin(args["KWS_OUTPUT_PATH"], query_type, x) for x in ["ids_to_query_terms.txt", "result_file_list.txt", "search_results.xml", "unique_search_results.xml"]], 
-                                             [query_file] + searches + [env.Value({"MODE" : "merge-default",
-                                                                                   "PADLENGTH" : 4,                                    
-                                                                                   "LANGUAGE_ID" : language_id})])
+            qtl, res_list, res, ures = env.Merge([pjoin(args["KWS_OUTPUT_PATH"], query_type, x) for x in ["ids_to_query_terms.txt", "result_file_list.txt", "search_results.xml", "unique_search_results.xml"]], 
+                                                 [query_file] + searches + [env.Value({"MODE" : "merge-default",
+                                                                                       "PADLENGTH" : 4,                                    
+                                                                                       "LANGUAGE_ID" : language_id})])
 
-        merged[query_type] = ures
-        om = env.MergeScores(pjoin(args["KWS_OUTPUT_PATH"], query_type, "results.xml"), 
-                             res)
+            merged[query_type] = ures
+            om = env.MergeScores(pjoin(args["KWS_OUTPUT_PATH"], query_type, "results.xml"), 
+                                 res)
 
-    iv_oov = env.MergeIVOOV(pjoin(args["KWS_OUTPUT_PATH"], "iv_oov_results.xml"), 
-                            [merged["in_vocabulary"], merged["out_of_vocabulary"], term_map, args["KW_FILE"]])
+        iv_oov = env.MergeIVOOV(pjoin(args["KWS_OUTPUT_PATH"], "iv_oov_results.xml"), 
+                                [merged["in_vocabulary"], merged["out_of_vocabulary"], term_map, args["KW_FILE"]])
 
-    norm = env.Normalize(pjoin(args["KWS_OUTPUT_PATH"], "norm.kwslist.xml"), 
-                         [iv_oov, kw_file])
+        norm = env.Normalize(pjoin(args["KWS_OUTPUT_PATH"], "norm.kwslist.xml"), 
+                             [iv_oov, kw_file])
 
-    normSTO = env.NormalizeSTO(pjoin(args["KWS_OUTPUT_PATH"], "normSTO.kwslist.xml"), 
-                               norm)
+        normSTO = env.NormalizeSTO(pjoin(args["KWS_OUTPUT_PATH"], "normSTO.kwslist.xml"), 
+                                   norm)
 
-    kws_score = env.Score(pjoin(args["KWS_OUTPUT_PATH"], "output", "Ensemble.AllOccur.results.txt"), 
-                          [normSTO, kw_file, env.Value({"RTTM_FILE" : args["RTTM_FILE"].rstr(), "ECF_FILE" : ecf_file[0].rstr(), "EXPID" : args["EXPID"]})])
+        kws_score = env.Score(pjoin(args["KWS_OUTPUT_PATH"], "output", "Full-Occur-MITLLFA3-AppenWordSeg.sum.txt"), 
+                              [normSTO, kw_file, env.Value({"RTTM_FILE" : args["RTTM_FILE"].rstr(), "ECF_FILE" : ecf_file[0].rstr(), "EXPID" : args["EXPID"]})])
 
-    return (asr_score, kws_score)
+        return kws_score
 
 
 #
 # morph, lm rerank, lm rerank w averaging, lm reranking for morpheme boundaries
 #
 experiments = []
-general_run = partial(run_experiment, SAMPLING_RATE=8000, FEATURE_TYPE="plp", AC_WEIGHT=.13, MAX_ERROR=15000, USE_DISPATCHER=False)
+general_asr_run = partial(run_asr_experiment, SAMPLING_RATE=8000, FEATURE_TYPE="plp", AC_WEIGHT=.13, MAX_ERROR=15000, USE_DISPATCHER=False)
+general_kws_run = partial(run_kws_experiment, SAMPLING_RATE=8000, FEATURE_TYPE="plp", AC_WEIGHT=.13, MAX_ERROR=15000, USE_DISPATCHER=False)
 properties = {}
 figures = {}
 results = {}
@@ -278,57 +290,57 @@ for language, config in env["LANGUAGES"].iteritems():
     locale = config["LOCALE"]
     exp_id = config["BIG_ID"]
 
-    full_transcripts, limited_transcripts, dev_transcripts = env.SplitTrainDev(
-        [pjoin("work", "transcripts", language, "%s_transcripts.txt.gz" % (name)) for name in ["full", "limited", "development"]],
-        env.Dir(pjoin(env["LANGUAGE_PACKS"], str(language_id))))
+    # full_transcripts, limited_transcripts, dev_transcripts = env.SplitTrainDev(
+    #     [pjoin("work", "transcripts", language, "%s_transcripts.txt.gz" % (name)) for name in ["full", "limited", "development"]],
+    #     env.Dir(pjoin(env["LANGUAGE_PACKS"], str(language_id))))
 
-    full_vocabulary, limited_vocabulary, dev_vocabulary = [env.TranscriptsToVocabulary(pjoin("work", "vocabularies", language, "%s.txt.gz" % (name)), transcripts) for name, transcripts in zip(["full", "limited", "development"], [full_transcripts, limited_transcripts, dev_transcripts])]
+    # full_vocabulary, limited_vocabulary, dev_vocabulary = [env.TranscriptsToVocabulary(pjoin("work", "vocabularies", language, "%s.txt.gz" % (name)), transcripts) for name, transcripts in zip(["full", "limited", "development"], [full_transcripts, limited_transcripts, dev_transcripts])]
     
     limited_basic_expansions_file = env.File(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "expansions", "simple.ex"))
-    limited_bigram_expansions_file = env.File(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "expansions", "bigram.ex"))
+    # limited_bigram_expansions_file = env.File(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "expansions", "bigram.ex"))
 
     limited_basic_expansions = env.SplitExpansion([limited_basic_expansions_file, env.Value(100000)],
                                                   BASE_PATH=pjoin("work", "expansions", language, "limited", "basic"))
 
-    limited_bigram_expansions = env.SplitExpansion([limited_bigram_expansions_file, env.Value(100000)],
-                                                   BASE_PATH=pjoin("work", "expansions", language, "limited", "bigram"))
+    # limited_bigram_expansions = env.SplitExpansion([limited_bigram_expansions_file, env.Value(100000)],
+    #                                                BASE_PATH=pjoin("work", "expansions", language, "limited", "bigram"))
     
-    morfessor_input = env.File(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "data", "train.sorted"))
-    morfessor_output = env.File(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "data", "morf.out"))
-    prefixes = env.File(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "data", "prefix.lex"))
-    stems = env.File(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "data", "stem.lex"))
-    suffixes = env.File(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "data", "suffix.lex"))
+    # morfessor_input = env.File(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "data", "train.sorted"))
+    # morfessor_output = env.File(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "data", "morf.out"))
+    # prefixes = env.File(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "data", "prefix.lex"))
+    # stems = env.File(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "data", "stem.lex"))
+    # suffixes = env.File(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "data", "suffix.lex"))
     
-    figures[(language, "Limited")] = env.PlotReduction(limited_basic_expansions + limited_bigram_expansions + [limited_vocabulary, dev_vocabulary, env.Value({"bins" : 1000})])
+    # figures[(language, "Limited")] = env.PlotReduction(limited_basic_expansions + limited_bigram_expansions + [limited_vocabulary, dev_vocabulary, env.Value({"bins" : 1000})])
 
     # evaluate G2P performance
-    if os.path.exists(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "tools/g2p/model-6")):
-        limited_pronunciations_file = env.File(pjoin(env["LORELEI_SVN"], str(language_id), "LimitedLP", "models", "dict.test"))
-        g2p = env.RunG2P(pjoin("work", "pronunciations", language, "g2p_candidate_pronunciations.gz"),
-                         [limited_pronunciations_file, pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "tools/g2p/model-6")])
+    # if os.path.exists(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "tools/g2p/model-6")) and env["EVALUATE_PRONUNCIATIONS"]:
+    #     limited_pronunciations_file = env.File(pjoin(env["LORELEI_SVN"], str(language_id), "LimitedLP", "models", "dict.test"))
+    #     g2p = env.RunG2P(pjoin("work", "pronunciations", language, "g2p_candidate_pronunciations.gz"),
+    #                      [limited_pronunciations_file, pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "tools/g2p/model-6")])
 
-        all_pronunciations = env.G2PToBabel(pjoin("work", "pronunciations", language, "candidate_pronunciations.gz"), # % (os.path.splitext(os.path.basename(expansion.rstr()))[0])), 
-                                            [g2p, env.Value(config["PHONEME_SWAP"])])
+    #     all_pronunciations = env.G2PToBabel(pjoin("work", "pronunciations", language, "candidate_pronunciations.gz"), # % (os.path.splitext(os.path.basename(expansion.rstr()))[0])), 
+    #                                         [g2p, env.Value(config["PHONEME_SWAP"])])
 
-        g2p_evals += [language, env.PronunciationPerformance(pjoin("work", "pronunciations", language, "performance.txt"), [all_pronunciations, limited_pronunciations_file])]                      
+    #     g2p_evals += [language, env.PronunciationPerformance(pjoin("work", "pronunciations", language, "performance.txt"), [all_pronunciations, limited_pronunciations_file])]                      
 
 
 
     #if os.path.exists(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "tools/g2p/model-6")):    
 
 
-    properties[(language, "Limited")] = {"prefixes" : prefixes,
-                                         "stems" : stems,
-                                         "suffixes" : suffixes,
-                                         "limited_vocabulary" : limited_vocabulary,
-                                         "dev_vocabulary" : dev_vocabulary,
-                                         "morfessor_output" : morfessor_output,
-                                         "morfessor_input" : morfessor_input,                                         
-                                         #"babelgum_pronunciations" : None,
-                                         }
+    # properties[(language, "Limited")] = {"prefixes" : prefixes,
+    #                                      "stems" : stems,
+    #                                      "suffixes" : suffixes,
+    #                                      "limited_vocabulary" : limited_vocabulary,
+    #                                      "dev_vocabulary" : dev_vocabulary,
+    #                                      "morfessor_output" : morfessor_output,
+    #                                      "morfessor_input" : morfessor_input,                                         
+    #                                      #"babelgum_pronunciations" : None,
+    #                                      }
 
-    #continue
-    results[(language, "Limited")] = {}
+    # #continue
+    # results[(language, "Limited")] = {}
 
     if os.path.exists(pjoin(env["IBM_MODELS"], str(language_id))):
 
@@ -336,11 +348,11 @@ for language, config in env["LANGUAGES"].iteritems():
         #limited_pronunciations_file = env.File(pjoin(env["LORELEI_SVN"], str(language_id), "LimitedLP", "models", "dict.test"))
 
         exp_path = pjoin("work", "pronunciations", language, "limited")
-        g2p = env.RunG2P(pjoin(exp_path, "basic.gz"), # % (os.path.splitext(os.path.basename(expansion.rstr()))[0])), 
-                         [limited_basic_expansions_file, pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "tools/g2p/model-6")])
-        env.NoClean(g2p)
-        all_pronunciations = env.G2PToBabel(pjoin(exp_path, "basic_prons.gz"), # % (os.path.splitext(os.path.basename(expansion.rstr()))[0])), 
-                                            [g2p, env.Value(config["PHONEME_SWAP"])])
+        #g2p = env.RunG2P(pjoin(exp_path, "basic.gz"), # % (os.path.splitext(os.path.basename(expansion.rstr()))[0])), 
+        #                 [limited_basic_expansions_file, pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "tools/g2p/model-6")])
+        #env.NoClean(g2p)
+        #all_pronunciations = env.G2PToBabel(pjoin(exp_path, "basic_prons.gz"), # % (os.path.splitext(os.path.basename(expansion.rstr()))[0])), 
+        #                                    [g2p, env.Value(config["PHONEME_SWAP"])])
 
 
 
@@ -348,7 +360,7 @@ for language, config in env["LANGUAGES"].iteritems():
         limited_vocabulary_file = env.File(pjoin(env["IBM_MODELS"], str(language_id), "LLP", "models", "vocab"))
         limited_language_model_file = env.Glob(pjoin(env["IBM_MODELS"], str(language_id), "LLP", "models", "lm.*"))[0]
 
-        markov = int(re.match(r".*lm\.(\d+)gm.*", limited_language_model_file.rstr()).group(1))
+        #markov = int(re.match(r".*lm\.(\d+)gm.*", limited_language_model_file.rstr()).group(1))
 
         for pack in ["LLP"]:
             baseline_pronunciations = env.File(pjoin(env["IBM_MODELS"], str(language_id), "models", "dict.test")) #config["pronunciations"]
@@ -367,7 +379,40 @@ for language, config in env["LANGUAGES"].iteritems():
             rttm_file = env.Glob(pjoin(env["INDUSDB_PATH"], "*babel%d*" % (language_id), "*dev.rttm"))[0]
             keywords = env.Glob(pjoin(env["INDUSDB_PATH"], "*babel%d*conv-dev.kwlist.xml" % (language_id)))[0]
             oov_dict = env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "kws-resources", "kws-resources*", "dict.OOV.v2p"))[0]
-            language_pack_run = partial(general_run,
+            language_pack_asr_run = partial(general_asr_run,
+                                        jobs=env["JOBS"],
+                                        PCM_PATH=data_path,
+                                        CMS_PATH=pjoin(env["IBM_MODELS"], str(language_id), pack, "adapt", "cms"),
+                                        FMLLR_PATH=pjoin(env["IBM_MODELS"], str(language_id), pack, "adapt", "fmllr"),
+                                        MODEL_PATH=model_path,
+                                        MEL_FILE=mel_file,
+                                        PHONE_FILE=phone_file,
+                                        PHONE_SET_FILE=phone_set_file,
+                                        TAGS_FILE=tags_file,
+                                        PRIORS_FILE=priors_file,
+                                        TREE_FILE=tree_file,
+                                        TOPO_FILE=topo_file,
+                                        TOPO_TREE_FILE=topo_tree_file,
+                                        LDA_FILE=lda_file,
+                                        WARP_FILE=warp_file,
+                                        LANGUAGE_ID=str(language_id),
+                                        EXPID=exp_id,
+                                        DATABASE_FILE=segmentation_file,
+                                        ACOUSTIC_WEIGHT=config["ACOUSTIC_WEIGHT"],
+                                        RTTM_FILE=rttm_file,
+                                        STM_FILE=stm_file,
+                                        KEYWORDS_FILE=keywords,
+                                        OOV_DICTIONARY_FILE=oov_dict,
+                                        TRFS_FILE=env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "models", "*.trfs")),
+                                        TR_FILE=env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "models", "*.tr")),
+                                        CTX_FILE=env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "models", "*.ctx")),
+                                        GS_FILE=env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "models", "*.gs")),
+                                        MS_FILE=env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "models", "*.ms")),
+                                        FS_FILE=env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "models", "*.fs")),
+                                        TXT_PATH=pjoin(env["IBM_MODELS"], str(language_id), pack, "SI", "cons"),
+                                        )
+
+            language_pack_kws_run = partial(general_kws_run,
                                         jobs=env["JOBS"],
                                         PCM_PATH=data_path,
                                         CMS_PATH=pjoin(env["IBM_MODELS"], str(language_id), pack, "adapt", "cms"),
@@ -401,48 +446,62 @@ for language, config in env["LANGUAGES"].iteritems():
                                         )
         
         # baseline experiment
-        baseline_results = language_pack_run(OUTPUT_PATH=pjoin("work", language, pack, "baseline"),
-                                             VOCABULARY_FILE=limited_vocabulary_file, 
-                                             PRONUNCIATIONS_FILE=limited_pronunciations_file,
-                                             LANGUAGE_MODEL_FILE=limited_language_model_file, 
-                                             )
+        baseline_asr_output = language_pack_asr_run(OUTPUT_PATH=pjoin("work", language, pack, "baseline"),
+                                                    VOCABULARY_FILE=limited_vocabulary_file, 
+                                                    PRONUNCIATIONS_FILE=limited_pronunciations_file,
+                                                    LANGUAGE_MODEL_FILE=limited_language_model_file, 
+                                                    )
 
-        #results[(language, "Limited")]["Baseline"] = baseline_results
-        #{"ASR" : env.File(pjoin("work", language, pack, "baseline", "asr", "scoring", "babel.sys")), 
-        #                                              "KWS" : env.File(pjoin("work", language, pack, "baseline", "kws", "output", "Ensemble.AllOccur.results.txt")),
-        #                                              }
+        # baseline experiment
+        baseline_kws_output = language_pack_kws_run(baseline_asr_output, OUTPUT_PATH=pjoin("work", language, pack, "baseline", "kws"),
+                                                    VOCABULARY_FILE=limited_vocabulary_file, 
+                                                    PRONUNCIATIONS_FILE=limited_pronunciations_file,
+                                                    LANGUAGE_MODEL_FILE=limited_language_model_file, 
+                                                    )
 
-        # triple-oracle experiment (weighted)
-        exp_path = pjoin("work", language, pack, "triple_oracle")
-        oracle_pronunciations, oracle_pnsp, oracle_tags = env.AppenToAttila([pjoin(exp_path, x) for x in 
-                                                                             ["oracle_pronunciations.txt", "oracle_pnsp.txt", "oracle_tags.txt"]],
-                                                                            [pjoin(data_path.rstr(), "conversational", "reference_materials", "lexicon.txt"),
-                                                                             pjoin(data_path.rstr(), "scripted", "reference_materials", "lexicon.txt"),
-                                                                             env.Value({"LOCALE" : locale, "SKIP_ROMAN" : config["SKIP_ROMAN"]})])
+        baseline_oov_kws_output = language_pack_kws_run(baseline_asr_output, OUTPUT_PATH=pjoin("work", language, pack, "baseline", "oov_kws"),
+                                                        VOCABULARY_FILE=limited_vocabulary_file, 
+                                                        PRONUNCIATIONS_FILE=limited_pronunciations_file,
+                                                        LANGUAGE_MODEL_FILE=limited_language_model_file, 
+                                                        OOV_ONLY=True,
+                                                        )
 
-        oracle_text, oracle_text_words = env.CollectText([pjoin(exp_path, x) for x in ["oracle_text.txt", "oracle_text_words.txt"]], 
-                                                         [env.Dir(x) for x in glob(pjoin(data_path.rstr(), "*/*/transcription"))])
-        oracle_vocabulary = env.PronunciationsToVocabulary(pjoin(exp_path, "oracle_vocabulary.txt"), oracle_pronunciations)
-        oracle_language_model = env.IBMTrainLanguageModel(pjoin(exp_path, "oracle_lm.%dgm.arpabo.gz" % (markov)), 
-                                                          [oracle_text, oracle_text_words, env.Value(markov)])
+#         #results[(language, "Limited")]["Baseline"] = baseline_results
+#         #{"ASR" : env.File(pjoin("work", language, pack, "baseline", "asr", "scoring", "babel.sys")), 
+#         #                                              "KWS" : env.File(pjoin("work", language, pack, "baseline", "kws", "output", "Ensemble.AllOccur.results.txt")),
+#         #                                              }
 
-        # oracle_results = language_pack_run(OUTPUT_PATH=exp_path,
-        #                                    VOCABULARY_FILE=oracle_vocabulary[0],
-        #                                    PRONUNCIATIONS_FILE=oracle_pronunciations,
-        #                                    LANGUAGE_MODEL_FILE=oracle_language_model[0],
-        #                                    PHONE_FILE=oracle_pnsp,
-        #                                    )
+#         # triple-oracle experiment (weighted)
+#         exp_path = pjoin("work", language, pack, "triple_oracle")
+#         oracle_pronunciations, oracle_pnsp, oracle_tags = env.AppenToAttila([pjoin(exp_path, x) for x in 
+#                                                                              ["oracle_pronunciations.txt", "oracle_pnsp.txt", "oracle_tags.txt"]],
+#                                                                             [pjoin(data_path.rstr(), "conversational", "reference_materials", "lexicon.txt"),
+#                                                                              pjoin(data_path.rstr(), "scripted", "reference_materials", "lexicon.txt"),
+#                                                                              env.Value({"LOCALE" : locale, "SKIP_ROMAN" : config["SKIP_ROMAN"]})])
+
+#         oracle_text, oracle_text_words = env.CollectText([pjoin(exp_path, x) for x in ["oracle_text.txt", "oracle_text_words.txt"]], 
+#                                                          [env.Dir(x) for x in glob(pjoin(data_path.rstr(), "*/*/transcription"))])
+#         oracle_vocabulary = env.PronunciationsToVocabulary(pjoin(exp_path, "oracle_vocabulary.txt"), oracle_pronunciations)
+#         oracle_language_model = env.IBMTrainLanguageModel(pjoin(exp_path, "oracle_lm.%dgm.arpabo.gz" % (markov)), 
+#                                                           [oracle_text, oracle_text_words, env.Value(markov)])
+
+#         # oracle_results = language_pack_run(OUTPUT_PATH=exp_path,
+#         #                                    VOCABULARY_FILE=oracle_vocabulary[0],
+#         #                                    PRONUNCIATIONS_FILE=oracle_pronunciations,
+#         #                                    LANGUAGE_MODEL_FILE=oracle_language_model[0],
+#         #                                    PHONE_FILE=oracle_pnsp,
+#         #                                    )
         
-        #results[(language, "Limited")]["Oracle"] = oracle_results
+#         #results[(language, "Limited")]["Oracle"] = oracle_results
 
-        # babelgum experiments
+#         # babelgum experiments
 
         for expansion in [limited_basic_expansions[1]]:
             exp_path = pjoin("work", language, pack)                
-            #g2p = env.RunG2P(pjoin(exp_path, "%s_g2p.gz" % (os.path.splitext(os.path.basename(expansion.rstr()))[0])), 
-            #                 [expansion, pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "tools/g2p/model-6")])
-            #all_pronunciations = env.G2PToBabel(pjoin(exp_path, "%s_pronunciations.gz" % (os.path.splitext(os.path.basename(expansion.rstr()))[0])), 
-            #                                    [g2p, env.Value(config["PHONEME_SWAP"])])
+            g2p = env.RunG2P(pjoin(exp_path, "%s_g2p.gz" % (os.path.splitext(os.path.basename(expansion.rstr()))[0])), 
+                            [expansion, pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "tools/g2p/model-6")])
+            all_pronunciations = env.G2PToBabel(pjoin(exp_path, "%s_pronunciations.gz" % (os.path.splitext(os.path.basename(expansion.rstr()))[0])), 
+                                               [g2p, env.Value(config["PHONEME_SWAP"])])
 
             for size in env["EXPANSION_SIZES"]:
                 exp_path = pjoin("work", language, pack, "babelgum_%d" % size)                
@@ -456,129 +515,150 @@ for language, config in env["LANGUAGES"].iteritems():
                         [limited_pronunciations_file, limited_language_model_file, pronunciations, env.Value(weight)]
                         )
                 
-                    babelgum_results = language_pack_run(OUTPUT_PATH=exp_path,
-                                                         VOCABULARY_FILE=babelgum_vocabulary,
-                                                         PRONUNCIATIONS_FILE=babelgum_pronunciations,
-                                                         LANGUAGE_MODEL_FILE=babelgum_language_model,
-                                                         )
+                    babelgum_asr_output = language_pack_asr_run(OUTPUT_PATH=exp_path,
+                                                                VOCABULARY_FILE=babelgum_vocabulary,
+                                                                PRONUNCIATIONS_FILE=babelgum_pronunciations,
+                                                                LANGUAGE_MODEL_FILE=babelgum_language_model,
+                                                                )
 
-                    ###
-                    # exp_path = pjoin("work", language, pack, "babelgum_%d_%f_correctprons" % (size, weight))
-                    # vocabulary, pronunciations = env.ReplacePronunciations([pjoin(exp_path, x) for x in ["vocabulary.gz", "corrected_pronunciations.gz"]],
-                    #                                            [pronunciations, oracle_pronunciations])
+                    babelgum_kws_output = language_pack_kws_run(babelgum_asr_output, OUTPUT_PATH=pjoin("work", language, pack, "babelgum", "kws"),
+                                                                VOCABULARY_FILE=babelgum_vocabulary,
+                                                                PRONUNCIATIONS_FILE=babelgum_pronunciations,
+                                                                LANGUAGE_MODEL_FILE=babelgum_language_model, 
+                                                                )
 
-                    # babelgum_vocabulary, babelgum_pronunciations, babelgum_language_model = env.AugmentLanguageModel(
-                    #     [pjoin(exp_path, x) for x in ["vocabulary.txt", "pronunciations.txt", os.path.basename(limited_language_model_file.rstr())]],
-                    #     [limited_pronunciations_file, limited_language_model_file, pronunciations, env.Value(weight)]
-                    #     )
+                    babelgum_kws_output = language_pack_kws_run(babelgum_asr_output, OUTPUT_PATH=pjoin("work", language, pack, "babelgum", "oov_kws"),
+                                                                VOCABULARY_FILE=babelgum_vocabulary,
+                                                                PRONUNCIATIONS_FILE=babelgum_pronunciations,
+                                                                LANGUAGE_MODEL_FILE=babelgum_language_model,
+                                                                REMOVE_VOCABULARY_FILE=limited_vocabulary_file,
+                                                                )
 
-                    # babelgum_results = language_pack_run(OUTPUT_PATH=exp_path,
-                    #                                      VOCABULARY_FILE=babelgum_vocabulary,
-                    #                                      PRONUNCIATIONS_FILE=babelgum_pronunciations,
-                    #                                      LANGUAGE_MODEL_FILE=babelgum_language_model,
-                    #                                      )
-
-                    # exp_path = pjoin("work", language, pack, "weighted_babelgum_%d_%f" % (size, weight))
-                    # weighted_babelgum_vocabulary, weighted_babelgum_pronunciations, weighted_babelgum_language_model = env.AugmentLanguageModel(
-                    #     [pjoin(exp_path, x) for x in ["vocabulary.txt", "pronunciations.txt", os.path.basename(limited_language_model_file.rstr())]],
-                    #     [limited_pronunciations_file, limited_language_model_file, pronunciations, words, env.Value(.1)]
-                    #     )
-
-                    # weighted_babelgum_results = language_pack_run(OUTPUT_PATH=exp_path,
-                    #                                               VOCABULARY_FILE=weighted_babelgum_vocabulary,
-                    #                                               PRONUNCIATIONS_FILE=weighted_babelgum_pronunciations,
-                    #                                               LANGUAGE_MODEL_FILE=weighted_babelgum_language_model,
-                    #                                               )
+                    #babelgum_oov_kws_output = language_pack_kws_run(babelgum_asr_output, OUTPUT_PATH=pjoin("work", language, pack, "babelgum", "oov_kws"),
+                    #                                                VOCABULARY_FILE=limited_vocabulary_file, 
+                    #                                                PRONUNCIATIONS_FILE=limited_pronunciations_file,
+                    #                                                LANGUAGE_MODEL_FILE=limited_language_model_file, 
+                    #                                                OOV_ONLY=True,
+                    #                                                )
 
 
-        # for method, (probs, prons) in config["expansions"].iteritems():
-        #     for size in [50000]:
-        #         base_path = pjoin("work", language, pack, method, str(size))
-        #         babelgum_probabilities, babelgum_pronunciations = env.BabelGumLexicon([pjoin(base_path, x) for x in ["expanded_%s_%d_probabilities.txt" % (method, size), 
-        #                                                                                                              "expanded_%s_%d_pronunciations.txt" % (method, size)]], 
-        #                                                                               [probs, prons, env.Value(size)])
-        #         #env.PlotProbabilities(pjoin(base_path, "probabilities.png"), probs)
+#                     ###
+#                     # exp_path = pjoin("work", language, pack, "babelgum_%d_%f_correctprons" % (size, weight))
+#                     # vocabulary, pronunciations = env.ReplacePronunciations([pjoin(exp_path, x) for x in ["vocabulary.gz", "corrected_pronunciations.gz"]],
+#                     #                                            [pronunciations, oracle_pronunciations])
 
-        #         for weight in [.1]:
+#                     # babelgum_vocabulary, babelgum_pronunciations, babelgum_language_model = env.AugmentLanguageModel(
+#                     #     [pjoin(exp_path, x) for x in ["vocabulary.txt", "pronunciations.txt", os.path.basename(limited_language_model_file.rstr())]],
+#                     #     [limited_pronunciations_file, limited_language_model_file, pronunciations, env.Value(weight)]
+#                     #     )
 
-        #             # double-oracle experiment (uniform)
-        #             exp_path = pjoin("work", language, pack, "double_oracle")
-        #             babelgum_vocabulary, babelgum_pronunciations, babelgum_language_model = env.AugmentLanguageModel(
-        #                 [pjoin(exp_path, x) for x in ["vocabulary.txt", "pronunciations.txt", os.path.basename(config["language_model"])]],
-        #                 [oracle_pronunciations, config["language_model"], oracle_pronunciations, env.Value(weight)]
-        #                 )
+#                     # babelgum_results = language_pack_run(OUTPUT_PATH=exp_path,
+#                     #                                      VOCABULARY_FILE=babelgum_vocabulary,
+#                     #                                      PRONUNCIATIONS_FILE=babelgum_pronunciations,
+#                     #                                      LANGUAGE_MODEL_FILE=babelgum_language_model,
+#                     #                                      )
 
+#                     # exp_path = pjoin("work", language, pack, "weighted_babelgum_%d_%f" % (size, weight))
+#                     # weighted_babelgum_vocabulary, weighted_babelgum_pronunciations, weighted_babelgum_language_model = env.AugmentLanguageModel(
+#                     #     [pjoin(exp_path, x) for x in ["vocabulary.txt", "pronunciations.txt", os.path.basename(limited_language_model_file.rstr())]],
+#                     #     [limited_pronunciations_file, limited_language_model_file, pronunciations, words, env.Value(.1)]
+#                     #     )
 
-
-        #             # adding correct babelgum vocabulary (uniform)
-        #             exp_path = pjoin(base_path, "correct_uniform=%f" % weight)
-        #             babelgum_rightwords_pronunciations, babelgum_rightwords_probabilities = \
-        #                 env.FilterBabelGum([pjoin(exp_path, "babelgum_rightwords_%d_%s.txt" % (size, x)) for x in ["pronunciations", "probabilities"]],
-        #                                    [babelgum_pronunciations, babelgum_probabilities, oracle_vocabulary])
-
-        #             babelgum_rightwords_uniform_vocabulary, babelgum_rightwords_uniform_pronunciations, babelgum_rightwords_uniform_language_model = env.AugmentLanguageModel(
-        #                 [pjoin(exp_path, x) for x in ["vocabulary.txt", "pronunciations.txt", os.path.basename(baseline_language_model)]],
-        #                 [baseline_pronunciations, baseline_language_model, babelgum_rightwords_pronunciations, env.Value(weight)]
-        #                 )
+#                     # weighted_babelgum_results = language_pack_run(OUTPUT_PATH=exp_path,
+#                     #                                               VOCABULARY_FILE=weighted_babelgum_vocabulary,
+#                     #                                               PRONUNCIATIONS_FILE=weighted_babelgum_pronunciations,
+#                     #                                               LANGUAGE_MODEL_FILE=weighted_babelgum_language_model,
+#                     #                                               )
 
 
+#         # for method, (probs, prons) in config["expansions"].iteritems():
+#         #     for size in [50000]:
+#         #         base_path = pjoin("work", language, pack, method, str(size))
+#         #         babelgum_probabilities, babelgum_pronunciations = env.BabelGumLexicon([pjoin(base_path, x) for x in ["expanded_%s_%d_probabilities.txt" % (method, size), 
+#         #                                                                                                              "expanded_%s_%d_pronunciations.txt" % (method, size)]], 
+#         #                                                                               [probs, prons, env.Value(size)])
+#         #         #env.PlotProbabilities(pjoin(base_path, "probabilities.png"), probs)
 
-        #             experiments.append(language_pack_run(OUTPUT_PATH=exp_path,
-        #                                                  VOCABULARY_FILE=babelgum_rightwords_uniform_vocabulary,
-        #                                                  PRONUNCIATIONS_FILE=babelgum_rightwords_uniform_pronunciations,
-        #                                                  LANGUAGE_MODEL_FILE=babelgum_rightwords_uniform_language_model,
-        #                                                  ))
+#         #         for weight in [.1]:
 
-
-        #             # adding correct babelgum vocabulary (weighted)
-        #             exp_path = pjoin(base_path, "correct_weighted=%f" % weight)
-
-        #             babelgum_rightwords_weighted_vocabulary, babelgum_rightwords_weighted_pronunciations, babelgum_rightwords_weighted_language_model = env.AugmentLanguageModel(
-        #                 [pjoin(exp_path, x) for x in ["vocabulary.txt", "pronunciations.txt", os.path.basename(baseline_language_model)]],
-        #                 [baseline_pronunciations, baseline_language_model, babelgum_rightwords_pronunciations, babelgum_rightwords_probabilities, env.Value(weight)]
-        #                 )
-
-        #             experiments.append(language_pack_run(OUTPUT_PATH=exp_path,
-        #                                                  VOCABULARY_FILE=babelgum_rightwords_weighted_vocabulary,
-        #                                                  PRONUNCIATIONS_FILE=babelgum_rightwords_weighted_pronunciations,
-        #                                                  LANGUAGE_MODEL_FILE=babelgum_rightwords_weighted_language_model,
-        #                                                  ))
-
-env.Textfile(pjoin("work", "pronunciations", "evaluations.txt"), g2p_evals, SUBST_DICT={})
-#env.BuildSite(target=[], 
-#              source=[env.Value(properties), env.Value(figures), env.Value({k : {kk : {"ASR" : vv[0], "KWS" : vv[1]} for kk, vv in v.iteritems()} for k, v in results.iteritems()})], BASE_PATH="work/babel_site")
-
-#env.BuildPropertyTables(target=["work/%s_property_table.tex" % (x) for x in ["language", "morfessor", "babelgum"]], 
-#                        source=[env.Value(properties)]) #, env.Value({k : {kk : {"ASR" : vv[0], "KWS" : vv[1]} for kk, vv in v.iteritems()} for k, v in results.iteritems()})])
-
-#env.BuildExtrinsicTables("work/extrinsic_table.tex", source=[env.Value(results)])
-#env.Value({k : {kk : {"ASR" : vv[0], "KWS" : vv[1]} for kk, vv in v.iteritems()} for k, v in results.iteritems()}))
-
-#                     babelgum_rightwords_uniform_path = pjoin("work", "experiments_%d_%f" % (size, weight), language, pack, "babelgum_corrected", "babelgum", "uniform")
-#                     babelgum_rightwords_uniform_experiment = env.CreateSmallASRDirectory(Dir(babelgum_rightwords_uniform_path),
-#                                                                                          experiment({"VOCABULARY_FILE" : babelgum_rightwords_uniform_vocabulary.rstr(),
-#                                                                                                      "PRONUNCIATIONS_FILE" : babelgum_rightwords_uniform_pronunciations.rstr(),
-#                                                                                                      "LANGUAGE_MODEL_FILE" : babelgum_rightwords_uniform_languagemodel.rstr(),
-#                                                                                                      "OUTPUT_PATH" : babelgum_rightwords_uniform_path,
-#                                                                                                      })
-#                                                                                          )
-#                     scores.append(submit(babelgum_rightwords_uniform_path, babelgum_rightwords_uniform_experiment, jobs=env["JOBS"]))
+#         #             # double-oracle experiment (uniform)
+#         #             exp_path = pjoin("work", language, pack, "double_oracle")
+#         #             babelgum_vocabulary, babelgum_pronunciations, babelgum_language_model = env.AugmentLanguageModel(
+#         #                 [pjoin(exp_path, x) for x in ["vocabulary.txt", "pronunciations.txt", os.path.basename(config["language_model"])]],
+#         #                 [oracle_pronunciations, config["language_model"], oracle_pronunciations, env.Value(weight)]
+#         #                 )
 
 
-#                     # adding just correct babelgum terms (weighted)
-#                     babelgum_rightwords_weighted_vocabulary, babelgum_rightwords_weighted_pronunciations, babelgum_rightwords_weighted_languagemodel = env.AugmentLanguageModel(
-#                         [pjoin(base_path, "babelgum_rightwords_weighted_%s_%d_%f_%s" % (model, size, weight, x)) for x in ["vocabulary.txt", "pronunciations.txt", "lm.3gm.arpabo.gz"]],
-#                         [baseline_pronunciations, baseline_languagemodel, babelgum_rightwords_pronunciations, babelgum_rightwords_probabilities, env.Value(weight)]
-#                         )
 
-#                     babelgum_rightwords_weighted_path = pjoin("work", "experiments_%d_%f" % (size, weight), language, pack, "babelgum_corrected", "babelgum", "weighted")
-#                     babelgum_rightwords_weighted_experiment = env.CreateSmallASRDirectory(Dir(babelgum_rightwords_weighted_path),
-#                                                                                          experiment({"VOCABULARY_FILE" : babelgum_rightwords_weighted_vocabulary.rstr(),
-#                                                                                                      "PRONUNCIATIONS_FILE" : babelgum_rightwords_weighted_pronunciations.rstr(),
-#                                                                                                      "LANGUAGE_MODEL_FILE" : babelgum_rightwords_weighted_languagemodel.rstr(),
-#                                                                                                      "OUTPUT_PATH" : babelgum_rightwords_weighted_path,
-#                                                                                                      })
-#                                                                                          )
-#                     scores.append(submit(babelgum_rightwords_weighted_path, babelgum_rightwords_weighted_experiment, jobs=env["JOBS"]))
+#         #             # adding correct babelgum vocabulary (uniform)
+#         #             exp_path = pjoin(base_path, "correct_uniform=%f" % weight)
+#         #             babelgum_rightwords_pronunciations, babelgum_rightwords_probabilities = \
+#         #                 env.FilterBabelGum([pjoin(exp_path, "babelgum_rightwords_%d_%s.txt" % (size, x)) for x in ["pronunciations", "probabilities"]],
+#         #                                    [babelgum_pronunciations, babelgum_probabilities, oracle_vocabulary])
 
-#env.CollateResults("work/results.txt", experiments)
+#         #             babelgum_rightwords_uniform_vocabulary, babelgum_rightwords_uniform_pronunciations, babelgum_rightwords_uniform_language_model = env.AugmentLanguageModel(
+#         #                 [pjoin(exp_path, x) for x in ["vocabulary.txt", "pronunciations.txt", os.path.basename(baseline_language_model)]],
+#         #                 [baseline_pronunciations, baseline_language_model, babelgum_rightwords_pronunciations, env.Value(weight)]
+#         #                 )
+
+
+
+#         #             experiments.append(language_pack_run(OUTPUT_PATH=exp_path,
+#         #                                                  VOCABULARY_FILE=babelgum_rightwords_uniform_vocabulary,
+#         #                                                  PRONUNCIATIONS_FILE=babelgum_rightwords_uniform_pronunciations,
+#         #                                                  LANGUAGE_MODEL_FILE=babelgum_rightwords_uniform_language_model,
+#         #                                                  ))
+
+
+#         #             # adding correct babelgum vocabulary (weighted)
+#         #             exp_path = pjoin(base_path, "correct_weighted=%f" % weight)
+
+#         #             babelgum_rightwords_weighted_vocabulary, babelgum_rightwords_weighted_pronunciations, babelgum_rightwords_weighted_language_model = env.AugmentLanguageModel(
+#         #                 [pjoin(exp_path, x) for x in ["vocabulary.txt", "pronunciations.txt", os.path.basename(baseline_language_model)]],
+#         #                 [baseline_pronunciations, baseline_language_model, babelgum_rightwords_pronunciations, babelgum_rightwords_probabilities, env.Value(weight)]
+#         #                 )
+
+#         #             experiments.append(language_pack_run(OUTPUT_PATH=exp_path,
+#         #                                                  VOCABULARY_FILE=babelgum_rightwords_weighted_vocabulary,
+#         #                                                  PRONUNCIATIONS_FILE=babelgum_rightwords_weighted_pronunciations,
+#         #                                                  LANGUAGE_MODEL_FILE=babelgum_rightwords_weighted_language_model,
+#         #                                                  ))
+
+# env.Textfile(pjoin("work", "pronunciations", "evaluations.txt"), g2p_evals, SUBST_DICT={})
+# #env.BuildSite(target=[], 
+# #              source=[env.Value(properties), env.Value(figures), env.Value({k : {kk : {"ASR" : vv[0], "KWS" : vv[1]} for kk, vv in v.iteritems()} for k, v in results.iteritems()})], BASE_PATH="work/babel_site")
+
+# #env.BuildPropertyTables(target=["work/%s_property_table.tex" % (x) for x in ["language", "morfessor", "babelgum"]], 
+# #                        source=[env.Value(properties)]) #, env.Value({k : {kk : {"ASR" : vv[0], "KWS" : vv[1]} for kk, vv in v.iteritems()} for k, v in results.iteritems()})])
+
+# #env.BuildExtrinsicTables("work/extrinsic_table.tex", source=[env.Value(results)])
+# #env.Value({k : {kk : {"ASR" : vv[0], "KWS" : vv[1]} for kk, vv in v.iteritems()} for k, v in results.iteritems()}))
+
+# #                     babelgum_rightwords_uniform_path = pjoin("work", "experiments_%d_%f" % (size, weight), language, pack, "babelgum_corrected", "babelgum", "uniform")
+# #                     babelgum_rightwords_uniform_experiment = env.CreateSmallASRDirectory(Dir(babelgum_rightwords_uniform_path),
+# #                                                                                          experiment({"VOCABULARY_FILE" : babelgum_rightwords_uniform_vocabulary.rstr(),
+# #                                                                                                      "PRONUNCIATIONS_FILE" : babelgum_rightwords_uniform_pronunciations.rstr(),
+# #                                                                                                      "LANGUAGE_MODEL_FILE" : babelgum_rightwords_uniform_languagemodel.rstr(),
+# #                                                                                                      "OUTPUT_PATH" : babelgum_rightwords_uniform_path,
+# #                                                                                                      })
+# #                                                                                          )
+# #                     scores.append(submit(babelgum_rightwords_uniform_path, babelgum_rightwords_uniform_experiment, jobs=env["JOBS"]))
+
+
+# #                     # adding just correct babelgum terms (weighted)
+# #                     babelgum_rightwords_weighted_vocabulary, babelgum_rightwords_weighted_pronunciations, babelgum_rightwords_weighted_languagemodel = env.AugmentLanguageModel(
+# #                         [pjoin(base_path, "babelgum_rightwords_weighted_%s_%d_%f_%s" % (model, size, weight, x)) for x in ["vocabulary.txt", "pronunciations.txt", "lm.3gm.arpabo.gz"]],
+# #                         [baseline_pronunciations, baseline_languagemodel, babelgum_rightwords_pronunciations, babelgum_rightwords_probabilities, env.Value(weight)]
+# #                         )
+
+# #                     babelgum_rightwords_weighted_path = pjoin("work", "experiments_%d_%f" % (size, weight), language, pack, "babelgum_corrected", "babelgum", "weighted")
+# #                     babelgum_rightwords_weighted_experiment = env.CreateSmallASRDirectory(Dir(babelgum_rightwords_weighted_path),
+# #                                                                                          experiment({"VOCABULARY_FILE" : babelgum_rightwords_weighted_vocabulary.rstr(),
+# #                                                                                                      "PRONUNCIATIONS_FILE" : babelgum_rightwords_weighted_pronunciations.rstr(),
+# #                                                                                                      "LANGUAGE_MODEL_FILE" : babelgum_rightwords_weighted_languagemodel.rstr(),
+# #                                                                                                      "OUTPUT_PATH" : babelgum_rightwords_weighted_path,
+# #                                                                                                      })
+# #                                                                                          )
+# #                     scores.append(submit(babelgum_rightwords_weighted_path, babelgum_rightwords_weighted_experiment, jobs=env["JOBS"]))
+
+# #env.CollateResults("work/results.txt", experiments)

@@ -24,5 +24,5 @@ def transcript_to_morfessor(target, source, env):
     return None
 
 def TOOLS_ADD(env):
-    env.Append(BUILDERS = {"TranscriptToMorfessor" : Builder(action=transcript_to_morfessor),
+    env.Append(BUILDERS = {"TranscriptToMorfessor" : Builder(action=transcript_to_morfessor),                           
                            })

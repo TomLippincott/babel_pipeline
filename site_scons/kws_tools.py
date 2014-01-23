@@ -25,6 +25,7 @@ def query_files(target, source, env):
     # iv oov map w2w <- 
     # INPUT: kw, iv, id
     # pad id to 4
+    remove_vocab = source[-1].read()
     with meta_open(source[0].rstr()) as kw_fd, meta_open(source[1].rstr()) as iv_fd:
         keyword_xml = et.parse(kw_fd)
         keywords = set([(x.get("kwid"), x.find("kwtext").text.lower()) for x in keyword_xml.getiterator("kw")])
@@ -32,10 +33,13 @@ def query_files(target, source, env):
         vocab = [x.decode("utf-8") for x in Pronunciations(iv_fd).get_words()]
         #print list(vocab)[0].split()
         #set([x.split()[1].strip().decode("utf-8") for x in iv_fd])
-        iv_keywords = sorted([(int(tag.split("-")[-1]), tag, term) for tag, term in keywords if all([y in vocab for y in term.split()])])
+        if remove_vocab:
+            remove_vocab = Vocabulary(meta_open(remove_vocab)).get_words()
+        else:
+            remove_vocab = []
+        iv_keywords = sorted([(int(tag.split("-")[-1]), tag, term) for tag, term in keywords if all([y in vocab for y in term.split()]) and term not in remove_vocab])
         oov_keywords = sorted([(int(tag.split("-")[-1]), tag, term) for tag, term in keywords if any([y not in vocab for y in term.split()])])
-        print len(iv_keywords)
-        language_id = source[-1].read()
+        language_id = source[-2].read()
         with meta_open(target[0].rstr(), "w") as iv_ofd, meta_open(target[1].rstr(), "w") as oov_ofd, meta_open(target[2].rstr(), "w") as map_ofd, meta_open(target[3].rstr(), "w") as w2w_ofd, meta_open(target[4].rstr(), "w") as kw_ofd:
             iv_ofd.write("\n".join([x[2].encode("utf-8") for x in iv_keywords]))
             oov_ofd.write("\n".join([x[2].encode("utf-8") for x in oov_keywords]))
@@ -175,7 +179,7 @@ def split_list(target, source, env):
             meta_open(fname.rstr(), "w").write("".join(lines[start : end]))
     return None
 
-def word_to_phone_lattice(target, source, env):
+def word_to_phone_lattice_torque(target, source, env):
     """
     NEEDS WORK!
     The most substantial computational work.  Uses the IBM binary 'wrd2phlattice'
@@ -253,7 +257,7 @@ Usage: /mnt/calculon-minor/lorelei_svn/KWS/bin64/wrd2phlattice [-opts] [output_d
     return None
 
 
-def word_to_phone_lattice_(target, source, env):
+def word_to_phone_lattice(target, source, env):
     """
     NEEDS WORK!
     The most substantial computational work.  Uses the IBM binary 'wrd2phlattice'
@@ -597,29 +601,33 @@ def collate_scores(target, source, env):
     return None
 
 def TOOLS_ADD(env):
-    env.Append(BUILDERS = {'LatticeList' : Builder(action=lattice_list), 
-                           'ECFFile' : Builder(action=ecf_file),
-                           'WordPronounceSymTable' : Builder(action=word_pronounce_sym_table), 
-                           'CleanPronounceSymTable' : Builder(action=clean_pronounce_sym_table), 
-                           'MungeDatabase' : Builder(action=munge_dbfile), 
-                           'CreateDataList' : Builder(action=create_data_list),
-                           'SplitList' : Builder(action=split_list), 
-                           'WordToPhoneLattice' : Builder(action=word_to_phone_lattice), 
-                           'GetFileList' : Builder(action=get_file_list), 
-                           'BuildIndex' : Builder(action=build_index), 
-                           'BuildPadFST' : Builder(action=build_pad_fst), 
-                           'FSTCompile' : Builder(action=fst_compile), 
-                           'QueryToPhoneFST' : Builder(action=query_to_phone_fst),
-                           'StandardSearch' : Builder(action=standard_search), 
-                           'Merge' : Builder(action=merge),
-                           'MergeScores' : Builder(action=merge_scores),
-                           'MergeIVOOV' : Builder(action=merge_iv_oov),
-                           'Normalize' : Builder(action=normalize),
-                           'NormalizeSTO' : Builder(action=normalize_sum_to_one),
-                           'Score' : Builder(action=score, emitter=score_emitter),
-                           'AlterIVOOV' : Builder(action=alter_iv_oov),
-                           "QueryFiles" : Builder(action=query_files),
-                           "DatabaseFile" : Builder(action=database_file),
-                           "CollateScores" : Builder(action=collate_scores),
-                           })
-               
+    BUILDERS = {'LatticeList' : Builder(action=lattice_list), 
+                'ECFFile' : Builder(action=ecf_file),
+                'WordPronounceSymTable' : Builder(action=word_pronounce_sym_table), 
+                'CleanPronounceSymTable' : Builder(action=clean_pronounce_sym_table), 
+                'MungeDatabase' : Builder(action=munge_dbfile), 
+                'CreateDataList' : Builder(action=create_data_list),
+                'SplitList' : Builder(action=split_list), 
+                #'WordToPhoneLattice' : Builder(action=word_to_phone_lattice), 
+                'GetFileList' : Builder(action=get_file_list), 
+                'BuildIndex' : Builder(action=build_index), 
+                'BuildPadFST' : Builder(action=build_pad_fst), 
+                'FSTCompile' : Builder(action=fst_compile), 
+                'QueryToPhoneFST' : Builder(action=query_to_phone_fst),
+                'StandardSearch' : Builder(action=standard_search), 
+                'Merge' : Builder(action=merge),
+                'MergeScores' : Builder(action=merge_scores),
+                'MergeIVOOV' : Builder(action=merge_iv_oov),
+                'Normalize' : Builder(action=normalize),
+                'NormalizeSTO' : Builder(action=normalize_sum_to_one),
+                'Score' : Builder(action=score, emitter=score_emitter),
+                'AlterIVOOV' : Builder(action=alter_iv_oov),
+                "QueryFiles" : Builder(action=query_files),
+                "DatabaseFile" : Builder(action=database_file),
+                "CollateScores" : Builder(action=collate_scores),
+                }
+    if env.get("HAS_TORQUE", False):
+        BUILDERS["WordToPhoneLattice"] = Builder(action=word_to_phone_lattice_torque)
+    else:
+        BUILDERS["WordToPhoneLattice"] = Builder(action=word_to_phone_lattice)
+    env.Append(BUILDERS=BUILDERS)

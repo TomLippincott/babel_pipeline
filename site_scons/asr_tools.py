@@ -513,6 +513,16 @@ def run_asr_experiment(target, source, env):
     out, err, success = run_command(construct_command)
     if not success:
         return out + err
+    command = env.subst("${ATTILA_INTERPRETER} ${SOURCES[2].abspath} -n ${LOCAL_JOBS} -j %d -w ${ACOUSTIC_WEIGHT} -l 1", source=source)
+    procs = [subprocess.Popen(shlex.split(command % i)) for i in range(env["LOCAL_JOBS"])]
+    return None
+
+def run_asr_experiment_torque(target, source, env):
+    args = source[-1].read()
+    construct_command = env.subst("${ATTILA_INTERPRETER} ${SOURCES[1].abspath}", source=source)
+    out, err, success = run_command(construct_command)
+    if not success:
+        return out + err
     stdout = env.Dir(args.get("stdout", args["path"])).Dir("stdout").rstr()
     stderr = env.Dir(args.get("stderr", args["path"])).Dir("stderr").rstr()
     if not os.path.exists(stdout):
@@ -851,36 +861,42 @@ def pronunciation_performance(target, source, env):
     return None
 
 def TOOLS_ADD(env):
-    env.Append(BUILDERS = {"SplitTrainDev" : Builder(action=split_train_dev),
-                           "AppenToAttila" : Builder(action=appen_to_attila),
-                           "PronunciationsToVocabulary" : Builder(action=pronunciations_to_vocabulary),
-                           "IBMTrainLanguageModel" : Builder(action=ibm_train_language_model),
-                           "MissingVocabulary" : Builder(action=missing_vocabulary),
-                           "AugmentLanguageModel" : Builder(action=augment_language_model, emitter=augment_language_model_emitter),
-                           #"AugmentLanguageModelFromBabel" : Builder(action=augment_language_model_from_babel),
-                           "TranscriptVocabulary" : Builder(action=transcript_vocabulary),
-                           "TrainPronunciationModel" : Builder(action=train_pronunciation_model),
-                           "CollectText" : Builder(action=collect_text, emitter=collect_text_emitter),
-                           "BabelGumLexicon" : Builder(action=babelgum_lexicon),
-                           "ReplacePronunciations" : Builder(action=replace_pronunciations),
-                           #"ReplaceProbabilities" : Builder(action=replace_probabilities),
-                           "FilterWords" : Builder(action=filter_words),                           
-                           "FilterBabelGum" : Builder(action=filter_babel_gum),
-                           "ScoreResults" : Builder(action=score_results, emitter=score_emitter),
-                           "CollateResults" : Builder(action=collate_results),
-                           "SplitExpansion" : Builder(action=split_expansion, emitter=split_expansion_emitter),
-                           "PlotProbabilities" : Builder(action=plot_probabilities),
-                           "PlotReduction" : Builder(action=plot_reduction, emitter=plot_reduction_emitter),
-                           "PlotUnigramProbabilities" : Builder(action=plot_unigram_probabilities),
-                           "TranscriptsToVocabulary" : Builder(action=transcripts_to_vocabulary),
+    BUILDERS = {"SplitTrainDev" : Builder(action=split_train_dev),
+                "AppenToAttila" : Builder(action=appen_to_attila),
+                "PronunciationsToVocabulary" : Builder(action=pronunciations_to_vocabulary),
+                "IBMTrainLanguageModel" : Builder(action=ibm_train_language_model),
+                "MissingVocabulary" : Builder(action=missing_vocabulary),
+                "AugmentLanguageModel" : Builder(action=augment_language_model, emitter=augment_language_model_emitter),
+                #"AugmentLanguageModelFromBabel" : Builder(action=augment_language_model_from_babel),
+                "TranscriptVocabulary" : Builder(action=transcript_vocabulary),
+                "TrainPronunciationModel" : Builder(action=train_pronunciation_model),
+                "CollectText" : Builder(action=collect_text, emitter=collect_text_emitter),
+                "BabelGumLexicon" : Builder(action=babelgum_lexicon),
+                "ReplacePronunciations" : Builder(action=replace_pronunciations),
+                #"ReplaceProbabilities" : Builder(action=replace_probabilities),
+                "FilterWords" : Builder(action=filter_words),                           
+                "FilterBabelGum" : Builder(action=filter_babel_gum),
+                "ScoreResults" : Builder(action=score_results, emitter=score_emitter),
+                "CollateResults" : Builder(action=collate_results),
+                "SplitExpansion" : Builder(action=split_expansion, emitter=split_expansion_emitter),
+                "PlotProbabilities" : Builder(action=plot_probabilities),
+                "PlotReduction" : Builder(action=plot_reduction, emitter=plot_reduction_emitter),
+                "PlotUnigramProbabilities" : Builder(action=plot_unigram_probabilities),
+                "TranscriptsToVocabulary" : Builder(action=transcripts_to_vocabulary),
+                
+                "CreateASRExperiment" : Builder(action=create_asr_experiment, emitter=create_asr_experiment_emitter),
+                
+                #"RunASRExperiment" : Builder(action=run_asr_experiment, emitter=run_asr_experiment_emitter),
+                "PronunciationsFromProbabilityList" : Builder(action=pronunciations_from_probability_list),
+                "TopWords" : Builder(action=top_words),
+                "RunG2P" : Builder(action=run_g2p),
+                "G2PToBabel" : Builder(action=g2p_to_babel),
+                "PronunciationPerformance" : Builder(action=pronunciation_performance),
+                }
+    if env.get("HAS_TORQUE", False):
+        BUILDERS["RunASRExperiment"] = Builder(action=run_asr_experiment_torque, emitter=run_asr_experiment_emitter)
+    else:
+        BUILDERS["RunASRExperiment"] = Builder(action=run_asr_experiment, emitter=run_asr_experiment_emitter)
+    
 
-                           "CreateASRExperiment" : Builder(action=create_asr_experiment, emitter=create_asr_experiment_emitter),
-                           
-                           "RunASRExperiment" : Builder(action=run_asr_experiment, emitter=run_asr_experiment_emitter),
-                           "PronunciationsFromProbabilityList" : Builder(action=pronunciations_from_probability_list),
-                           "TopWords" : Builder(action=top_words),
-                           "RunG2P" : Builder(action=run_g2p),
-                           "G2PToBabel" : Builder(action=g2p_to_babel),
-                           "PronunciationPerformance" : Builder(action=pronunciation_performance),
-                           })
-               
+    env.Append(BUILDERS=BUILDERS)
