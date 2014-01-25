@@ -414,6 +414,58 @@ Options:
         return stderr
     return None
 
+def standard_search_torque(target, source, env):
+    """
+Usage: /mnt/calculon-minor/lorelei_svn/KWS/bin64/stdsearch [-opts] [result_file] [query_file]                     
+Options:                                                                        
+-d file          data file [data.list] with lines in the following format :     
+                 utt_name start_time fst_path (default: data.list)              
+-f filt          filter fst (default: none)                                     
+-i fst           index fst (default: index.fst)                                 
+-n N             return N-best results (default: return all)                    
+-p fst           pad fst (default: fspad.fst)                                   
+-s symbols       arc symbols (default: word.list)                               
+-t threshold     min score needed to decide YES,                                
+                 (if specified it overrides term-spec-threshold (default))      
+-T true/false    true (default)=queries are in text format, false=fst format    
+                 txtformat: query list is a list of queries,                    
+                 fstformat: query list is a list of full-paths to query fsts    
+-J int           job-batch (for parallel run)                                   
+-N int           total number of jobs (for parallel run)                        
+-a string        title on results list (default: stdbn.tlist.xml)               
+-b string        prefix on termid (default: TERM-0)                             
+-m string        termid numerical formatting string (default: -1524500936)             
+-O               if specified, don't optimize (default : optimize = true)       
+-v               (verbose) if specified, print all debug outputs to stderr      
+-?               info/options
+    """
+    data_list, isym, idx, pad, queryph = source[0:5]
+    args = source[-1].read()
+    interval = args.get("interval", 30)
+    if source[-2].stat().st_size == 0:
+        with meta_open(target[0].rstr(), "w") as ofd:
+            ofd.write("""<stdlist termlist_filename="std.xml" indexing_time="68.51" language="english" index_size="" system_id="" />\n""")
+        return None
+    command = env.subst("${STDSEARCH} -F ${TARGET} -i ${SOURCES[2]} -b KW%(LANGUAGE_ID)s- -s ${SOURCES[1]} -p ${SOURCES[3]} -d ${SOURCES[0]} -a %(TITLE)s -m %(PRECISION)s ${SOURCES[4]}" % args, target=target, source=source)
+    job = torque.Job(args.get("name", "scons-stdsearch"),
+                     commands=[command],
+                     path=args.get("path", target[0].get_dir()).rstr(),
+                     stdout_path=pjoin(target[0].get_dir().rstr(), "stdout"),
+                     stderr_path=pjoin(target[0].get_dir().rstr(), "stderr"),
+                     other=args.get("other", ["#PBS -W group_list=yeticcls"]),
+                     )
+    if env["HAS_TORQUE"]:
+        print str(job)
+        job.submit(commit=True)
+        while job.job_id in [x[0] for x in torque.get_jobs(True)]:
+            logging.info("sleeping...")
+            time.sleep(interval)
+    else:
+        logging.info("no Torque server, but I would submit:\n%s" % (job))
+    with meta_open(target[0].rstr(), "w") as ofd:
+        ofd.write(time.asctime() + "\n")
+    return None
+
 def merge(target, source, env):
     """
     NEEDS WORK!
@@ -614,7 +666,7 @@ def TOOLS_ADD(env):
                 'BuildPadFST' : Builder(action=build_pad_fst), 
                 'FSTCompile' : Builder(action=fst_compile), 
                 'QueryToPhoneFST' : Builder(action=query_to_phone_fst),
-                'StandardSearch' : Builder(action=standard_search), 
+                #'StandardSearch' : Builder(action=standard_search), 
                 'Merge' : Builder(action=merge),
                 'MergeScores' : Builder(action=merge_scores),
                 'MergeIVOOV' : Builder(action=merge_iv_oov),
@@ -628,6 +680,8 @@ def TOOLS_ADD(env):
                 }
     if env.get("HAS_TORQUE", False):
         BUILDERS["WordToPhoneLattice"] = Builder(action=word_to_phone_lattice_torque)
+        BUILDERS["StandardSearch"] = Builder(action=standard_search_torque)
     else:
         BUILDERS["WordToPhoneLattice"] = Builder(action=word_to_phone_lattice)
+        BUILDERS["StandardSearch"] = Builder(action=standard_search)
     env.Append(BUILDERS=BUILDERS)

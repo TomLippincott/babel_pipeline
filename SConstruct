@@ -135,25 +135,24 @@ def run_asr_experiment(jobs=20, default_files={}, default_directories={}, defaul
         else:
             parameters[k] = v
 
-    #
-    # ASR 
-    #
     experiment = env.CreateASRExperiment(Dir(args["ASR_OUTPUT_PATH"]), [env.Value(x) for x in [files, directories, parameters]])
 
     if not env["RUN_ASR"]:
         asr_output = env.Dir(args["ASR_OUTPUT_PATH"])
+        asr_score = env.Dir(args["ASR_OUTPUT_PATH"])
     else:
         asr_output = env.RunASRExperiment(source=experiment, ACOUSTIC_WEIGHT=args["ACOUSTIC_WEIGHT"])
-    return asr_output
+        asr_score = env.ScoreResults(env.Dir(pjoin(args["ASR_OUTPUT_PATH"], "scoring")),
+                                     [env.Dir(os.path.abspath(pjoin(args["ASR_OUTPUT_PATH"], "ctm"))), files["STM_FILE"], asr_output])
+    return (asr_score, asr_output)
+
 
 def run_kws_experiment(asr_output, jobs=20, default_files={}, default_directories={}, default_parameters={}, **args):
-    #asr_score = env.ScoreResults(env.Dir(pjoin(args["ASR_OUTPUT_PATH"], "scoring")),
-    #                         [env.Dir(os.path.abspath(pjoin(args["ASR_OUTPUT_PATH"], "ctm"))), files["STM_FILE"], asr_output])
     oov_only = args.get("OOV_ONLY", False)
     files = {k : v for k, v in default_files.iteritems()}
     directories = {k : v for k, v in default_directories.iteritems()}
     parameters = {k : v for k, v in default_parameters.iteritems()}
-    args["ASR_OUTPUT_PATH"] = asr_output.rstr() #pjoin(args["OUTPUT_PATH"], "asr")
+    args["ASR_OUTPUT_PATH"] = asr_output[0].get_dir().rstr() #pjoin(args["OUTPUT_PATH"], "asr")
     args["KWS_OUTPUT_PATH"] = args["OUTPUT_PATH"]
     for k, v in args.iteritems():
         if k.endswith("FILE"):
@@ -162,9 +161,6 @@ def run_kws_experiment(asr_output, jobs=20, default_files={}, default_directorie
             directories[k] = v
         else:
             parameters[k] = v
-    #
-    # KEYWORD SEARCH
-    #
     if not env["RUN_KWS"]:
         return (None, None)
     else:
@@ -182,6 +178,8 @@ def run_kws_experiment(asr_output, jobs=20, default_files={}, default_directorie
                                                                                                                                            "word_to_word.fst",
                                                                                                                                            "kwfile.xml"]], 
                                                                                               [kw_file, iv_dict, env.Value(language_id), env.Value(str(args.get("REMOVE_VOCABULARY_FILE", "")))])
+
+        env.Depends(iv_query_terms, asr_output)
 
         # JOBS LATTICE_DIRECTORY KW_FILE RTTM_FILE
         base_path = args["OUTPUT_PATH"]
@@ -340,7 +338,7 @@ for language, config in env["LANGUAGES"].iteritems():
     #                                      }
 
     # #continue
-    # results[(language, "Limited")] = {}
+    results[(language, "Limited")] = {}
 
     if os.path.exists(pjoin(env["IBM_MODELS"], str(language_id))):
 
@@ -446,12 +444,12 @@ for language, config in env["LANGUAGES"].iteritems():
                                         )
         
         # baseline experiment
-        baseline_asr_output = language_pack_asr_run(OUTPUT_PATH=pjoin("work", language, pack, "baseline"),
-                                                    VOCABULARY_FILE=limited_vocabulary_file, 
-                                                    PRONUNCIATIONS_FILE=limited_pronunciations_file,
-                                                    LANGUAGE_MODEL_FILE=limited_language_model_file, 
-                                                    )
-
+        (baseline_asr_score, baseline_asr_output) = language_pack_asr_run(OUTPUT_PATH=pjoin("work", language, pack, "baseline"),
+                                                                          VOCABULARY_FILE=limited_vocabulary_file, 
+                                                                          PRONUNCIATIONS_FILE=limited_pronunciations_file,
+                                                                          LANGUAGE_MODEL_FILE=limited_language_model_file, 
+                                                                          )
+        
         # baseline experiment
         baseline_kws_output = language_pack_kws_run(baseline_asr_output, OUTPUT_PATH=pjoin("work", language, pack, "baseline", "kws"),
                                                     VOCABULARY_FILE=limited_vocabulary_file, 
@@ -515,24 +513,24 @@ for language, config in env["LANGUAGES"].iteritems():
                         [limited_pronunciations_file, limited_language_model_file, pronunciations, env.Value(weight)]
                         )
                 
-                    babelgum_asr_output = language_pack_asr_run(OUTPUT_PATH=exp_path,
-                                                                VOCABULARY_FILE=babelgum_vocabulary,
-                                                                PRONUNCIATIONS_FILE=babelgum_pronunciations,
-                                                                LANGUAGE_MODEL_FILE=babelgum_language_model,
-                                                                )
+                    (babelgum_asr_score, babelgum_asr_output) = language_pack_asr_run(OUTPUT_PATH=exp_path,
+                                                                                      VOCABULARY_FILE=babelgum_vocabulary,
+                                                                                      PRONUNCIATIONS_FILE=babelgum_pronunciations,
+                                                                                      LANGUAGE_MODEL_FILE=babelgum_language_model,
+                                                                                      )
 
-                    babelgum_kws_output = language_pack_kws_run(babelgum_asr_output, OUTPUT_PATH=pjoin("work", language, pack, "babelgum", "kws"),
+                    babelgum_kws_output = language_pack_kws_run(babelgum_asr_output, OUTPUT_PATH=pjoin(exp_path, "kws"),
                                                                 VOCABULARY_FILE=babelgum_vocabulary,
                                                                 PRONUNCIATIONS_FILE=babelgum_pronunciations,
                                                                 LANGUAGE_MODEL_FILE=babelgum_language_model, 
                                                                 )
 
-                    babelgum_kws_output = language_pack_kws_run(babelgum_asr_output, OUTPUT_PATH=pjoin("work", language, pack, "babelgum", "oov_kws"),
-                                                                VOCABULARY_FILE=babelgum_vocabulary,
-                                                                PRONUNCIATIONS_FILE=babelgum_pronunciations,
-                                                                LANGUAGE_MODEL_FILE=babelgum_language_model,
-                                                                REMOVE_VOCABULARY_FILE=limited_vocabulary_file,
-                                                                )
+                    # babelgum_kws_output = language_pack_kws_run(babelgum_asr_output, OUTPUT_PATH=pjoin("work", language, pack, "babelgum", "kws"),
+                    #                                             VOCABULARY_FILE=babelgum_vocabulary,
+                    #                                             PRONUNCIATIONS_FILE=babelgum_pronunciations,
+                    #                                             LANGUAGE_MODEL_FILE=babelgum_language_model,
+                    #                                             REMOVE_VOCABULARY_FILE=limited_vocabulary_file,
+                    #                                             )
 
                     #babelgum_oov_kws_output = language_pack_kws_run(babelgum_asr_output, OUTPUT_PATH=pjoin("work", language, pack, "babelgum", "oov_kws"),
                     #                                                VOCABULARY_FILE=limited_vocabulary_file, 
@@ -631,7 +629,7 @@ for language, config in env["LANGUAGES"].iteritems():
 # #env.BuildPropertyTables(target=["work/%s_property_table.tex" % (x) for x in ["language", "morfessor", "babelgum"]], 
 # #                        source=[env.Value(properties)]) #, env.Value({k : {kk : {"ASR" : vv[0], "KWS" : vv[1]} for kk, vv in v.iteritems()} for k, v in results.iteritems()})])
 
-# #env.BuildExtrinsicTables("work/extrinsic_table.tex", source=[env.Value(results)])
+#env.BuildExtrinsicTables("work/extrinsic_table.tex", source=[env.Value(results)])
 # #env.Value({k : {kk : {"ASR" : vv[0], "KWS" : vv[1]} for kk, vv in v.iteritems()} for k, v in results.iteritems()}))
 
 # #                     babelgum_rightwords_uniform_path = pjoin("work", "experiments_%d_%f" % (size, weight), language, pack, "babelgum_corrected", "babelgum", "uniform")
