@@ -121,38 +121,16 @@ def print_cmd_line(s, target, source, env):
 env['PRINT_CMD_LINE_FUNC'] = print_cmd_line
 
 
-def run_asr_experiment(jobs=20, default_files={}, default_directories={}, default_parameters={}, **args):
-    files = {k : v for k, v in default_files.iteritems()}
-    directories = {k : v for k, v in default_directories.iteritems()}
-    parameters = {k : v for k, v in default_parameters.iteritems()}
-    args["ASR_OUTPUT_PATH"] = pjoin(args["OUTPUT_PATH"], "asr")
-    args["KWS_OUTPUT_PATH"] = pjoin(args["OUTPUT_PATH"], "kws")
-    for k, v in args.iteritems():
-        if k.endswith("FILE"):
-            files[k] = v
-        elif k.endswith("PATH"):
-            directories[k] = v
-        else:
-            parameters[k] = v
-
-    experiment = env.CreateASRExperiment(Dir(args["ASR_OUTPUT_PATH"]), [env.Value(x) for x in [files, directories, parameters]])
-
-    if not env["RUN_ASR"]:
-        asr_output = env.Dir(args["ASR_OUTPUT_PATH"])
-        asr_score = env.Dir(args["ASR_OUTPUT_PATH"])
-    else:
-        asr_output = env.RunASRExperiment(source=experiment, ACOUSTIC_WEIGHT=args["ACOUSTIC_WEIGHT"])
-        asr_score = env.ScoreResults(env.Dir(pjoin(args["ASR_OUTPUT_PATH"], "scoring")),
-                                     [env.Dir(os.path.abspath(pjoin(args["ASR_OUTPUT_PATH"], "ctm"))), files["STM_FILE"], asr_output])
-    return (asr_score, asr_output)
-
-
 def run_kws_experiment(asr_output, jobs=20, default_files={}, default_directories={}, default_parameters={}, **args):
     oov_only = args.get("OOV_ONLY", False)
     files = {k : v for k, v in default_files.iteritems()}
     directories = {k : v for k, v in default_directories.iteritems()}
     parameters = {k : v for k, v in default_parameters.iteritems()}
-    args["ASR_OUTPUT_PATH"] = asr_output[0].get_dir().rstr() #pjoin(args["OUTPUT_PATH"], "asr")
+    try:
+        args["ASR_OUTPUT_PATH"] = asr_output[0].get_dir().rstr() #pjoin(args["OUTPUT_PATH"], "asr")
+    except:
+        args["ASR_OUTPUT_PATH"] = asr_output.get_dir().rstr() #pjoin(args["OUTPUT_PATH"], "asr")
+
     args["KWS_OUTPUT_PATH"] = args["OUTPUT_PATH"]
     for k, v in args.iteritems():
         if k.endswith("FILE"):
@@ -276,8 +254,7 @@ def run_kws_experiment(asr_output, jobs=20, default_files={}, default_directorie
 # morph, lm rerank, lm rerank w averaging, lm reranking for morpheme boundaries
 #
 experiments = []
-general_asr_run = partial(run_asr_experiment, SAMPLING_RATE=8000, FEATURE_TYPE="plp", AC_WEIGHT=.13, MAX_ERROR=15000, USE_DISPATCHER=False)
-general_kws_run = partial(run_kws_experiment, SAMPLING_RATE=8000, FEATURE_TYPE="plp", AC_WEIGHT=.13, MAX_ERROR=15000, USE_DISPATCHER=False)
+#general_kws_run = partial(run_kws_experiment, SAMPLING_RATE=8000, FEATURE_TYPE="plp", AC_WEIGHT=.13, MAX_ERROR=15000, USE_DISPATCHER=False)
 properties = {}
 figures = {}
 results = {}
@@ -297,8 +274,8 @@ for language, config in env["LANGUAGES"].iteritems():
     limited_basic_expansions_file = env.File(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "expansions", "simple.ex"))
     # limited_bigram_expansions_file = env.File(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "expansions", "bigram.ex"))
 
-    limited_basic_expansions = env.SplitExpansion([limited_basic_expansions_file, env.Value(100000)],
-                                                  BASE_PATH=pjoin("work", "expansions", language, "limited", "basic"))
+    #limited_basic_expansions = env.SplitExpansion([limited_basic_expansions_file, env.Value(100000)],
+    #                                              BASE_PATH=pjoin("work", "expansions", language, "limited", "basic"))
 
     # limited_bigram_expansions = env.SplitExpansion([limited_bigram_expansions_file, env.Value(100000)],
     #                                                BASE_PATH=pjoin("work", "expansions", language, "limited", "bigram"))
@@ -358,111 +335,38 @@ for language, config in env["LANGUAGES"].iteritems():
         limited_vocabulary_file = env.File(pjoin(env["IBM_MODELS"], str(language_id), "LLP", "models", "vocab"))
         limited_language_model_file = env.Glob(pjoin(env["IBM_MODELS"], str(language_id), "LLP", "models", "lm.*"))[0]
 
-        #markov = int(re.match(r".*lm\.(\d+)gm.*", limited_language_model_file.rstr()).group(1))
+
 
         for pack in ["LLP"]:
-            baseline_pronunciations = env.File(pjoin(env["IBM_MODELS"], str(language_id), "models", "dict.test")) #config["pronunciations"]
-            baseline_language_model = env.Glob(pjoin(env["IBM_MODELS"], str(language_id), "models", "lm*")) #config["language_model"]
+            asr_output = env.RunASR("baseline", language_id, pack, config["ACOUSTIC_WEIGHT"], LANGUAGE_ID=language_id, PACK=pack)
+            
 
-            data_path = env.Dir(pjoin(env["LANGUAGE_PACKS"], str(language_id)))        
-            segmentation_file = env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "segment", "*dev.*"))[0]
 
-            model_path = env.Dir(pjoin(env["IBM_MODELS"], str(language_id), pack, "models"))
-            mel_file, phone_file, phone_set_file, tags_file, priors_file, tree_file, topo_file, topo_tree_file, lda_file = \
-                [env.File(pjoin(model_path.rstr(), x)) for x in ["mel", "pnsp", "phonesset", "tags", "priors", "tree", "topo.tied", "topotree", "30.mat"]]
+            #PRONUNCIATIONS_FILE=limited_pronunciations_file.rstr(),
+            #                             VOCABULARY_FILE=limited_vocabulary_file.rstr(),
+            #                             LANGUAGE_MODEL_FILE=limited_language_model_file.rstr())
+            #baseline_output = env.RunKWS(pjoin(experiment_path, "kws"), [])
 
-            adapt_path = env.Dir(pjoin(env["IBM_MODELS"], str(language_id), pack, "adapt"))
-            warp_file = env.File(pjoin(adapt_path.rstr(), "warp.lst"))
-            stm_file = env.Glob(pjoin(env["INDUSDB_PATH"], "*babel%d*" % (language_id), "*stm"))[0]
-            rttm_file = env.Glob(pjoin(env["INDUSDB_PATH"], "*babel%d*" % (language_id), "*dev.rttm"))[0]
-            keywords = env.Glob(pjoin(env["INDUSDB_PATH"], "*babel%d*conv-dev.kwlist.xml" % (language_id)))[0]
-            oov_dict = env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "kws-resources", "kws-resources*", "dict.OOV.v2p"))[0]
-            language_pack_asr_run = partial(general_asr_run,
-                                        jobs=env["JOBS"],
-                                        PCM_PATH=data_path,
-                                        CMS_PATH=pjoin(env["IBM_MODELS"], str(language_id), pack, "adapt", "cms"),
-                                        FMLLR_PATH=pjoin(env["IBM_MODELS"], str(language_id), pack, "adapt", "fmllr"),
-                                        MODEL_PATH=model_path,
-                                        MEL_FILE=mel_file,
-                                        PHONE_FILE=phone_file,
-                                        PHONE_SET_FILE=phone_set_file,
-                                        TAGS_FILE=tags_file,
-                                        PRIORS_FILE=priors_file,
-                                        TREE_FILE=tree_file,
-                                        TOPO_FILE=topo_file,
-                                        TOPO_TREE_FILE=topo_tree_file,
-                                        LDA_FILE=lda_file,
-                                        WARP_FILE=warp_file,
-                                        LANGUAGE_ID=str(language_id),
-                                        EXPID=exp_id,
-                                        DATABASE_FILE=segmentation_file,
-                                        ACOUSTIC_WEIGHT=config["ACOUSTIC_WEIGHT"],
-                                        RTTM_FILE=rttm_file,
-                                        STM_FILE=stm_file,
-                                        KEYWORDS_FILE=keywords,
-                                        OOV_DICTIONARY_FILE=oov_dict,
-                                        TRFS_FILE=env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "models", "*.trfs")),
-                                        TR_FILE=env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "models", "*.tr")),
-                                        CTX_FILE=env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "models", "*.ctx")),
-                                        GS_FILE=env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "models", "*.gs")),
-                                        MS_FILE=env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "models", "*.ms")),
-                                        FS_FILE=env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "models", "*.fs")),
-                                        TXT_PATH=pjoin(env["IBM_MODELS"], str(language_id), pack, "SI", "cons"),
-                                        )
-
-            language_pack_kws_run = partial(general_kws_run,
-                                        jobs=env["JOBS"],
-                                        PCM_PATH=data_path,
-                                        CMS_PATH=pjoin(env["IBM_MODELS"], str(language_id), pack, "adapt", "cms"),
-                                        FMLLR_PATH=pjoin(env["IBM_MODELS"], str(language_id), pack, "adapt", "fmllr"),
-                                        MODEL_PATH=model_path,
-                                        MEL_FILE=mel_file,
-                                        PHONE_FILE=phone_file,
-                                        PHONE_SET_FILE=phone_set_file,
-                                        TAGS_FILE=tags_file,
-                                        PRIORS_FILE=priors_file,
-                                        TREE_FILE=tree_file,
-                                        TOPO_FILE=topo_file,
-                                        TOPO_TREE_FILE=topo_tree_file,
-                                        LDA_FILE=lda_file,
-                                        WARP_FILE=warp_file,
-                                        LANGUAGE_ID=str(language_id),
-                                        EXPID=exp_id,
-                                        DATABASE_FILE=segmentation_file,
-                                        ACOUSTIC_WEIGHT=config["ACOUSTIC_WEIGHT"],
-                                        RTTM_FILE=rttm_file,
-                                        STM_FILE=stm_file,
-                                        KEYWORDS_FILE=keywords,
-                                        OOV_DICTIONARY_FILE=oov_dict,
-                                        TRFS_FILE=env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "models", "*.trfs")),
-                                        TR_FILE=env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "models", "*.tr")),
-                                        CTX_FILE=env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "models", "*.ctx")),
-                                        GS_FILE=env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "models", "*.gs")),
-                                        MS_FILE=env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "models", "*.ms")),
-                                        FS_FILE=env.Glob(pjoin(env["IBM_MODELS"], str(language_id), pack, "models", "*.fs")),
-                                        TXT_PATH=pjoin(env["IBM_MODELS"], str(language_id), pack, "SI", "cons"),
-                                        )
+        # baseline experiment
+        #(baseline_asr_score, baseline_asr_output) = language_pack_asr_run(OUTPUT_PATH=pjoin("work", language, pack, "baseline"),
+        #                                                                  VOCABULARY_FILE=limited_vocabulary_file, 
+        #                                                                  PRONUNCIATIONS_FILE=limited_pronunciations_file,
+        #                                                                  LANGUAGE_MODEL_FILE=limited_language_model_file, 
+        #                                                                  )
         
         # baseline experiment
-        (baseline_asr_score, baseline_asr_output) = language_pack_asr_run(OUTPUT_PATH=pjoin("work", language, pack, "baseline"),
-                                                                          VOCABULARY_FILE=limited_vocabulary_file, 
-                                                                          PRONUNCIATIONS_FILE=limited_pronunciations_file,
-                                                                          LANGUAGE_MODEL_FILE=limited_language_model_file, 
-                                                                          )
-        
-        # baseline experiment
-        baseline_kws_output = language_pack_kws_run(baseline_asr_output, OUTPUT_PATH=pjoin("work", language, pack, "baseline", "kws"),
-                                                    VOCABULARY_FILE=limited_vocabulary_file, 
-                                                    PRONUNCIATIONS_FILE=limited_pronunciations_file,
-                                                    LANGUAGE_MODEL_FILE=limited_language_model_file, 
-                                                    )
+        #baseline_kws_output = language_pack_kws_run(baseline_asr_output, OUTPUT_PATH=pjoin("work", language, pack, "baseline", "kws"),
+        #                                            VOCABULARY_FILE=limited_vocabulary_file, 
+        #                                            PRONUNCIATIONS_FILE=limited_pronunciations_file,
+        #                                            LANGUAGE_MODEL_FILE=limited_language_model_file, 
+        #                                            )
 
-        baseline_oov_kws_output = language_pack_kws_run(baseline_asr_output, OUTPUT_PATH=pjoin("work", language, pack, "baseline", "oov_kws"),
-                                                        VOCABULARY_FILE=limited_vocabulary_file, 
-                                                        PRONUNCIATIONS_FILE=limited_pronunciations_file,
-                                                        LANGUAGE_MODEL_FILE=limited_language_model_file, 
-                                                        OOV_ONLY=True,
-                                                        )
+        #baseline_oov_kws_output = language_pack_kws_run(baseline_asr_output, OUTPUT_PATH=pjoin("work", language, pack, "baseline", "oov_kws"),
+        #                                                VOCABULARY_FILE=limited_vocabulary_file, 
+        #                                                PRONUNCIATIONS_FILE=limited_pronunciations_file,
+        #                                                LANGUAGE_MODEL_FILE=limited_language_model_file, 
+        #                                                OOV_ONLY=True,
+        #                                                )
 
 #         #results[(language, "Limited")]["Baseline"] = baseline_results
 #         #{"ASR" : env.File(pjoin("work", language, pack, "baseline", "asr", "scoring", "babel.sys")), 
@@ -493,8 +397,9 @@ for language, config in env["LANGUAGES"].iteritems():
 #         #results[(language, "Limited")]["Oracle"] = oracle_results
 
 #         # babelgum experiments
-
+        continue
         for expansion in [limited_basic_expansions[1]]:
+            continue
             exp_path = pjoin("work", language, pack)                
             g2p = env.RunG2P(pjoin(exp_path, "%s_g2p.gz" % (os.path.splitext(os.path.basename(expansion.rstr()))[0])), 
                             [expansion, pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "tools/g2p/model-6")])

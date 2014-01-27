@@ -24,19 +24,113 @@ from babel import ProbabilityList, Arpabo, Pronunciations, Vocabulary, Frequency
 from os.path import join as pjoin
 from common_tools import meta_open
 
-def run_asr(target, source, env):    
-    return None
+asr_defaults = sum(
+    [
+        [("%s_FILE" % (k), "${IBM_MODELS}/${LANGUAGE_ID}/${PACK}/models/%s" % (v)) for k, v in 
+         [("MEL", "mel"),
+          ("PHONE", "pnsp"),
+          ("PHONE_SET", "phonesset"),
+          ("TAGS", "tags"),
+          ("PRIORS", "priors"),
+          ("TREE", "tree"),
+          ("TOPO", "topo.tied"),
+          ("TOPO_TREE", "topotree"),
+          ("LDA", "30.mat"),
+          ("TRFS", "*.trfs"),
+          ("TR", "*.tr"),
+          ("CTX", "*.ctx"),
+          ("GS", "*.gs"),
+          ("FS", "*.fs"),
+          ("MS", "*.ms"),
+          ("PRONUNCIATIONS", "dict.test"),
+          ("LANGUAGE_MODEL", "lm*"),
+          ("VOCABULARY", "vocab"),
+          ("PRONUNCIATIONS", "dict.test"),
+          ]],
+                  
+        [("%s_FILE" % (k), "${IBM_MODELS}/${LANGUAGE_ID}/${PACK}/segment/%s" % (v)) for k, v in
+         [("SEGMENTATION", "*.dev.*")
+          ]],
 
-def run_asr_emitter(target, source, env):
-    new_sources = []
-    new_targets = pjoin(env["BASE_PATH"], "out.txt")
-    return new_targets, new_sources
+        [("%s_FILE" % (k), "${IBM_MODELS}/${LANGUAGE_ID}/${PACK}/adapt/%s" % (v)) for k, v in
+         [("WARP", "warp.lst")
+          ]],
+
+        [("%s_FILE" % (k), "${INDUSDB_PATH}/*babel${LANGUAGE_ID}*/%s" % (v)) for k, v in
+         [("STM", "*.stm"),
+          ("RTTM", "*.rttm"),
+          ]],
+        
+        [(k, v) for k, v in
+         [("SAMPLING_RATE", 8000),
+          ("FEATURE_TYPE", "plp"),
+          ("MAX_ERROR", 15000),
+          ("USE_DISPATCHER", False),          
+          ]],
+
+        [("%s_PATH" % (k), v) for k, v in
+         [("PCM", "${LANGUAGE_PACKS}/${LANGUAGE_ID}"),
+          ("MODEL", "${IBM_MODELS}/${LANGUAGE_ID}/${PACK}/models"),
+          ("CMS", "${IBM_MODELS}/${LANGUAGE_ID}/${PACK}/adapt/cms"),
+          ("FMLLR", "${IBM_MODELS}/${LANGUAGE_ID}/${PACK}/adapt/fmllr"),
+          ("TXT", "${IBM_MODELS}/${LANGUAGE_ID}/${PACK}/SI/cons"),          
+          ]]
+        ],    
+    []
+    )
+
+id_to_language = {
+    102 : "assamese",
+    106 : "tagalog",
+    206 : "zulu",
+    }
+
+def run_asr(env, name, language_id, pack, acoustic_weight, *args, **kw):
+    language = id_to_language[language_id]
+    files = {}
+    directories = {}
+    parameters = {}
+    renv = env.Clone(**kw)
+    for k, v in asr_defaults:
+        if k.endswith("FILE"):
+            files[k] = renv.Glob(v)
+        elif k.endswith("PATH"):
+            directories[k] = renv.Dir(v)
+        else:            
+            parameters[k] = v
+
+    for k, v in kw.iteritems():
+        if k.endswith("FILE"):
+            files[k] = renv.Glob(v)
+        elif k.endswith("PATH"):
+            directories[k] = renv.Dir(v)
+        else:            
+            parameters[k] = v
+
+    directories["ASR_OUTPUT_PATH"] = pjoin("work", "asr", "output", language, pack, name)
+    try:
+        os.makedirs(directories["ASR_OUTPUT_PATH"])
+    except:
+        pass
+    
+    #print "\n".join(["%s = %s" % (k, v) for k, v in files.iteritems()])
+    #print "\n".join(["%s = %s" % (k, v) for k, v in directories.iteritems()])
+    #print "\n".join(["%s = %s" % (k, v) for k, v in parameters.iteritems()])
+
+    # create the configuration files for running the experiment
+    experiment = env.CreateASRExperiment(env.Dir(pjoin("work", "asr", "configurations", language, pack, name)), [env.Value(x) for x in [files, directories, parameters]])
+
+    # run the experiment
+    asr_output = env.RunASRExperiment(target=env.Dir(directories["ASR_OUTPUT_PATH"]), source=experiment, ACOUSTIC_WEIGHT=acoustic_weight)
+
+    # evaluate the output
+    asr_score = env.ScoreResults(env.Dir(pjoin(output_path, "scoring")),
+                                     [env.Dir(os.path.abspath(pjoin(output_path, "ctm"))), files["STM_FILE"], asr_output])
+
+    return (asr_score, asr_output)
 
 def run_kws(target, source, env):
     return None
-
-def run_kws_emitter(target, source, env):
-    return target, source
 
 def build_extrinsic_tables(target, source, env):
     files = source[0].read()
@@ -334,9 +428,11 @@ def build_site_emitter(target, source, env):
     return new_targets, new_sources
 
 def TOOLS_ADD(env):
-    env.Append(BUILDERS = {"RunASR" : Builder(action=run_asr, emitter=run_asr_emitter),
-                           "RunKWS" : Builder(action=run_kws, emitter=run_kws_emitter),
+    env.Append(BUILDERS = {#"RunASR" : Builder(action=run_asr, emitter=run_asr_emitter),
+            #"RunKWS" : Builder(action=run_kws, emitter=run_kws_emitter),
                            "BuildSite" : Builder(action=build_site, emitter=build_site_emitter),
                            "BuildPropertyTables" : Builder(action=build_property_tables, emitter=build_property_tables_emitter),
                            "BuildExtrinsicTables" : Builder(action=build_extrinsic_tables, emitter=build_extrinsic_tables_emitter),
                            })
+    env.AddMethod(run_asr, "RunASR")
+    env.AddMethod(run_kws, "RunKWS")

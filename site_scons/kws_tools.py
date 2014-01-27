@@ -16,7 +16,8 @@ import shlex
 import time
 import shutil
 import tempfile
-from common_tools import meta_open, temp_dir, run_command
+from common_tools import meta_open, temp_dir
+from torque_tools import run_command
 from babel import ProbabilityList, Arpabo, Pronunciations, Vocabulary
 import torque
 

@@ -21,7 +21,8 @@ import codecs
 import locale
 import bisect
 from babel import ProbabilityList, Arpabo, Pronunciations, Vocabulary, FrequencyList
-from common_tools import Probability, run_command, temp_file
+from common_tools import Probability, temp_file
+from torque_tools import run_command
 import torque
 from os.path import join as pjoin
 import matplotlib
@@ -371,6 +372,7 @@ def create_asr_experiment(target, source, env):
     config["GRAPH_OFILE"] = env.File(os.path.join(config["ASR_OUTPUT_PATH"].rstr(), "dnet.bin.gz"))
     config["CTM_OPATH"] = env.Dir(os.path.abspath(os.path.join(config["ASR_OUTPUT_PATH"].rstr(), "ctm")))
     config["LAT_OPATH"] = env.Dir(os.path.abspath(os.path.join(config["ASR_OUTPUT_PATH"].rstr(), "lat")))
+    config["DATABASE_FILE"] = config["SEGMENTATION_FILE"]
 
     # print dictionary for debugging
     logging.debug("%s", "\n".join(["%s = %s" % (k, v) for k, v in config.iteritems()]))
@@ -515,6 +517,8 @@ def run_asr_experiment(target, source, env):
         return out + err
     command = env.subst("${ATTILA_INTERPRETER} ${SOURCES[2].abspath} -n ${LOCAL_JOBS} -j %d -w ${ACOUSTIC_WEIGHT} -l 1", source=source)
     procs = [subprocess.Popen(shlex.split(command % i)) for i in range(env["LOCAL_JOBS"])]
+    for p in procs:
+        p.wait()
     return None
 
 def run_asr_experiment_torque(target, source, env):
