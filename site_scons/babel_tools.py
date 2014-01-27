@@ -124,8 +124,8 @@ def run_asr(env, name, language_id, pack, acoustic_weight, *args, **kw):
     asr_output = env.RunASRExperiment(target=env.Dir(directories["ASR_OUTPUT_PATH"]), source=experiment, ACOUSTIC_WEIGHT=acoustic_weight)
 
     # evaluate the output
-    asr_score = env.ScoreResults(env.Dir(pjoin(output_path, "scoring")),
-                                     [env.Dir(os.path.abspath(pjoin(output_path, "ctm"))), files["STM_FILE"], asr_output])
+    asr_score = env.ScoreResults(env.Dir(pjoin("work", "asr", "scoring", language, pack, name)),
+                                     [env.Dir(os.path.abspath(pjoin(directories["ASR_OUTPUT_PATH"], "ctm"))), files["STM_FILE"], asr_output])
 
     return (asr_score, asr_output)
 
