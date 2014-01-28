@@ -561,7 +561,7 @@ def run_asr_experiment_emitter(target, source, env):
         args.update(source[0].read())
     except:
         args["path"] = source[0].get_dir().rstr()
-    return target[0].get_dir().File("timestamp.txt"), source + [env.Value(args)]
+    return target[0].File("timestamp.txt"), source + [env.Value(args)]
 
 def score_results(target, source, env):
     """

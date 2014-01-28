@@ -103,9 +103,9 @@ AllowSubstExceptions()
 # initialize the Python logging system (though we don't really use it in this build, could be useful later)
 #
 if isinstance(env["LOG_DESTINATION"], basestring):
-    logging.basicConfig(format='%(asctime)s %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=env["LOG_LEVEL"], filename=env["LOG_DESTINATION"])
+    logging.basicConfig(format='%(asctime)s %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=int(env["LOG_LEVEL"]), filename=env["LOG_DESTINATION"])
 else:
-    logging.basicConfig(format='%(asctime)s %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=env["LOG_LEVEL"])
+    logging.basicConfig(format='%(asctime)s %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=int(env["LOG_LEVEL"]))
 
 #
 # each Builder emits a string describing what it's doing (target, source, etc), but with thousands of
@@ -120,141 +120,10 @@ def print_cmd_line(s, target, source, env):
 
 env['PRINT_CMD_LINE_FUNC'] = print_cmd_line
 
-
-def run_kws_experiment(asr_output, jobs=20, default_files={}, default_directories={}, default_parameters={}, **args):
-    oov_only = args.get("OOV_ONLY", False)
-    files = {k : v for k, v in default_files.iteritems()}
-    directories = {k : v for k, v in default_directories.iteritems()}
-    parameters = {k : v for k, v in default_parameters.iteritems()}
-    try:
-        args["ASR_OUTPUT_PATH"] = asr_output[0].get_dir().rstr() #pjoin(args["OUTPUT_PATH"], "asr")
-    except:
-        args["ASR_OUTPUT_PATH"] = asr_output.get_dir().rstr() #pjoin(args["OUTPUT_PATH"], "asr")
-
-    args["KWS_OUTPUT_PATH"] = args["OUTPUT_PATH"]
-    for k, v in args.iteritems():
-        if k.endswith("FILE"):
-            files[k] = v
-        elif k.endswith("PATH"):
-            directories[k] = v
-        else:
-            parameters[k] = v
-    if not env["RUN_KWS"]:
-        return (None, None)
-    else:
-
-        # just make some local variables from the experiment definition (for convenience)
-        iv_dict = args["VOCABULARY_FILE"]
-        oov_dict = args["OOV_DICTIONARY_FILE"]
-        dbfile = args["DATABASE_FILE"]
-        kw_file = args["KEYWORDS_FILE"]
-        language_id = args["LANGUAGE_ID"]
-
-        iv_query_terms, oov_query_terms, term_map, word_to_word_fst, kw_file = env.QueryFiles([pjoin(args["KWS_OUTPUT_PATH"], x) for x in ["iv_queries.txt", 
-                                                                                                                                           "oov_queries.txt",
-                                                                                                                                           "term_map.txt",
-                                                                                                                                           "word_to_word.fst",
-                                                                                                                                           "kwfile.xml"]], 
-                                                                                              [kw_file, iv_dict, env.Value(language_id), env.Value(str(args.get("REMOVE_VOCABULARY_FILE", "")))])
-
-        env.Depends(iv_query_terms, asr_output)
-
-        # JOBS LATTICE_DIRECTORY KW_FILE RTTM_FILE
-        base_path = args["OUTPUT_PATH"]
-        args["LATTICE_DIRECTORY"] = pjoin(args["ASR_OUTPUT_PATH"], "lat")
-        args["JOBS"] = 4
-        args["KW_FILE"] = args["KEYWORDS_FILE"]
-
-
-        full_lattice_list = env.LatticeList(pjoin(args["KWS_OUTPUT_PATH"], "lattice_list.txt"),
-                                            [dbfile, env.Value(args["LATTICE_DIRECTORY"])])
-
-        lattice_lists = env.SplitList([pjoin(args["KWS_OUTPUT_PATH"], "lattice_list_%d.txt" % (n + 1)) for n in range(args["JOBS"])], full_lattice_list)
-
-        wordpron = env.WordPronounceSymTable(pjoin(args["KWS_OUTPUT_PATH"], "in_vocabulary_symbol_table.txt"),
-                                             iv_dict)
-
-        isym = env.CleanPronounceSymTable(pjoin(args["KWS_OUTPUT_PATH"], "cleaned_in_vocabulary_symbol_table.txt"),
-                                          wordpron)
-
-        mdb = env.MungeDatabase(pjoin(args["KWS_OUTPUT_PATH"], "munged_database.txt"),
-                                [dbfile, full_lattice_list])
-
-        padfst = env.BuildPadFST(pjoin(args["KWS_OUTPUT_PATH"], "pad_fst.txt"),
-                                 wordpron)
-
-        #env.Depends([wordpron, iv_query_terms, full_lattice_list], asr_score)
-
-        full_data_list = env.CreateDataList(pjoin(args["KWS_OUTPUT_PATH"], "full_data_list.txt"),
-                                            [mdb] + [env.Value({"oldext" : "fsm.gz", 
-                                                                "ext" : "fst",
-                                                                "subdir_style" : "hub4",
-                                                                "LATTICE_DIR" : args["LATTICE_DIRECTORY"],
-                                                                })], BASE_PATH=args["KWS_OUTPUT_PATH"])
-
-        ecf_file = env.ECFFile(pjoin(args["KWS_OUTPUT_PATH"], "ecf.xml"), mdb)
-
-        data_lists = env.SplitList([pjoin(args["KWS_OUTPUT_PATH"], "data_list_%d.txt" % (n + 1)) for n in range(args["JOBS"])], full_data_list)
-
-        p2p_fst = env.FSTCompile(pjoin(args["KWS_OUTPUT_PATH"], "p2p_fst.txt"),
-                                 [isym, word_to_word_fst])
-
-        wtp_lattices = []
-
-
-        for i, (data_list, lattice_list) in enumerate(zip(data_lists, lattice_lists)):
-            wp = env.WordToPhoneLattice(pjoin(args["KWS_OUTPUT_PATH"], "lattices", "lattice_generation-%d.stamp" % (i + 1)), 
-                                        [data_list, lattice_list, wordpron, iv_dict, env.Value({"PRUNE_THRESHOLD" : -1,
-                                                                                                "EPSILON_SYMBOLS" : "'<s>,</s>,~SIL,<HES>'",
-                                                                                                })])
-
-            fl = env.GetFileList(pjoin(args["KWS_OUTPUT_PATH"], "file_list-%d.txt" % (i + 1)), 
-                                 [data_list, wp])
-            idx = env.BuildIndex(pjoin(args["KWS_OUTPUT_PATH"], "index-%d.fst" % (i + 1)),
-                                 fl)
-
-            wtp_lattices.append((wp, data_list, lattice_list, fl, idx))
-
-        merged = {}
-        for query_type, query_file in zip(["in_vocabulary", "out_of_vocabulary"], [iv_query_terms, oov_query_terms]):
-            queries = env.QueryToPhoneFST(pjoin(args["KWS_OUTPUT_PATH"], query_type, "query.fst"), 
-                                          [p2p_fst, isym, iv_dict, query_file, env.Value({"n" : 1, "I" : 1, "OUTDIR" : pjoin(args["KWS_OUTPUT_PATH"], query_type, "queries")})])
-            searches = []
-            for i, (wtp_lattice, data_list, lattice_list, fl, idx) in enumerate(wtp_lattices):
-                searches.append(env.StandardSearch(pjoin(args["KWS_OUTPUT_PATH"], query_type, "search_output-%d.txt" % (i + 1)),
-                                                   [data_list, isym, idx, padfst, queries, env.Value({"PRECISION" : "'%.4d'", "TITLE" : "std.xml", "LANGUAGE_ID" : language_id})]))
-
-
-
-            qtl, res_list, res, ures = env.Merge([pjoin(args["KWS_OUTPUT_PATH"], query_type, x) for x in ["ids_to_query_terms.txt", "result_file_list.txt", "search_results.xml", "unique_search_results.xml"]], 
-                                                 [query_file] + searches + [env.Value({"MODE" : "merge-default",
-                                                                                       "PADLENGTH" : 4,                                    
-                                                                                       "LANGUAGE_ID" : language_id})])
-
-            merged[query_type] = ures
-            om = env.MergeScores(pjoin(args["KWS_OUTPUT_PATH"], query_type, "results.xml"), 
-                                 res)
-
-        iv_oov = env.MergeIVOOV(pjoin(args["KWS_OUTPUT_PATH"], "iv_oov_results.xml"), 
-                                [merged["in_vocabulary"], merged["out_of_vocabulary"], term_map, args["KW_FILE"]])
-
-        norm = env.Normalize(pjoin(args["KWS_OUTPUT_PATH"], "norm.kwslist.xml"), 
-                             [iv_oov, kw_file])
-
-        normSTO = env.NormalizeSTO(pjoin(args["KWS_OUTPUT_PATH"], "normSTO.kwslist.xml"), 
-                                   norm)
-
-        kws_score = env.Score(pjoin(args["KWS_OUTPUT_PATH"], "output", "Full-Occur-MITLLFA3-AppenWordSeg.sum.txt"), 
-                              [normSTO, kw_file, env.Value({"RTTM_FILE" : args["RTTM_FILE"].rstr(), "ECF_FILE" : ecf_file[0].rstr(), "EXPID" : args["EXPID"]})])
-
-        return kws_score
-
-
 #
 # morph, lm rerank, lm rerank w averaging, lm reranking for morpheme boundaries
 #
 experiments = []
-#general_kws_run = partial(run_kws_experiment, SAMPLING_RATE=8000, FEATURE_TYPE="plp", AC_WEIGHT=.13, MAX_ERROR=15000, USE_DISPATCHER=False)
 properties = {}
 figures = {}
 results = {}
@@ -338,8 +207,8 @@ for language, config in env["LANGUAGES"].iteritems():
 
 
         for pack in ["LLP"]:
-            asr_output = env.RunASR("baseline", language_id, pack, config["ACOUSTIC_WEIGHT"], LANGUAGE_ID=language_id, PACK=pack)
-            
+            (asr_output, asr_score) = env.RunASR("baseline", LANGUAGE_ID=language_id, PACK=pack, ACOUSTIC_WEIGHT=config["ACOUSTIC_WEIGHT"]) #, LANGUAGE_ID=language_id, PACK=pack)
+            kws_score = env.RunKWS("baseline", asr_output, LANGUAGE_ID=language_id, PACK=pack)
 
 
             #PRONUNCIATIONS_FILE=limited_pronunciations_file.rstr(),

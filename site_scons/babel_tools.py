@@ -85,13 +85,15 @@ id_to_language = {
     206 : "zulu",
     }
 
-def run_asr(env, name, language_id, pack, acoustic_weight, *args, **kw):
-    language = id_to_language[language_id]
+def run_asr(env, name, *args, **kw):
+    language = id_to_language[kw["LANGUAGE_ID"]]
     files = {}
     directories = {}
     parameters = {}
+    searched = {}
     renv = env.Clone(**kw)
     for k, v in asr_defaults:
+        searched[k] = searched.get(k, []) + [renv.subst(v)]
         if k.endswith("FILE"):
             files[k] = renv.Glob(v)
         elif k.endswith("PATH"):
@@ -100,37 +102,211 @@ def run_asr(env, name, language_id, pack, acoustic_weight, *args, **kw):
             parameters[k] = v
 
     for k, v in kw.iteritems():
+        searched[k] = searched.get(k, []) + [renv.subst(v)]
         if k.endswith("FILE"):
-            files[k] = renv.Glob(v)
+            files[k] = files,get(k, []) + renv.Glob(v)
         elif k.endswith("PATH"):
             directories[k] = renv.Dir(v)
         else:            
             parameters[k] = v
 
-    directories["ASR_OUTPUT_PATH"] = pjoin("work", "asr", "output", language, pack, name)
+    #for k, v in files.iteritems():
+    #    if len(v) == 0:
+    #        env.Exit("ERROR: couldn't find suitable file for '%s' when searching %s" % (k, searched[k]))
+
+    directories["OUTPUT_PATH"] = pjoin("work", "asr", "output", language, parameters["PACK"], name)
+    directories["ASR_OUTPUT_PATH"] = directories["OUTPUT_PATH"]
     try:
-        os.makedirs(directories["ASR_OUTPUT_PATH"])
+        os.makedirs(directories["OUTPUT_PATH"])
     except:
         pass
     
-    #print "\n".join(["%s = %s" % (k, v) for k, v in files.iteritems()])
-    #print "\n".join(["%s = %s" % (k, v) for k, v in directories.iteritems()])
-    #print "\n".join(["%s = %s" % (k, v) for k, v in parameters.iteritems()])
+    logging.debug("\n".join(
+            ["Files:"] +
+            ["%s = %s" % (k, v) for k, v in files.iteritems()] +
+            ["Directories:"] +
+            ["%s = %s" % (k, v) for k, v in directories.iteritems()] +
+            ["Parameters:"] +
+            ["%s = %s" % (k, v) for k, v in parameters.iteritems()]
+            ))
 
     # create the configuration files for running the experiment
-    experiment = env.CreateASRExperiment(env.Dir(pjoin("work", "asr", "configurations", language, pack, name)), [env.Value(x) for x in [files, directories, parameters]])
+    experiment = env.CreateASRExperiment(env.Dir(pjoin("work", "asr", "configurations", language, parameters["PACK"], name)), [env.Value(x) for x in [files, directories, parameters]])
 
-    # run the experiment
-    asr_output = env.RunASRExperiment(target=env.Dir(directories["ASR_OUTPUT_PATH"]), source=experiment, ACOUSTIC_WEIGHT=acoustic_weight)
+    if env["RUN_ASR"]:
+        # run the experiment
+        asr_output = env.RunASRExperiment(target=env.Dir(directories["OUTPUT_PATH"]), source=experiment, ACOUSTIC_WEIGHT=parameters["ACOUSTIC_WEIGHT"])
 
-    # evaluate the output
-    asr_score = env.ScoreResults(env.Dir(pjoin("work", "asr", "scoring", language, pack, name)),
-                                     [env.Dir(os.path.abspath(pjoin(directories["ASR_OUTPUT_PATH"], "ctm"))), files["STM_FILE"], asr_output])
+        # evaluate the output
+        asr_score = env.ScoreResults(env.Dir(pjoin("work", "asr", "scoring", language, parameters["PACK"], name)),
+                                     [env.Dir(os.path.abspath(pjoin(directories["OUTPUT_PATH"], "ctm"))), files["STM_FILE"], asr_output])
+    else:
+        asr_output = env.File(pjoin(directories["OUTPUT_PATH"], "timestamp.txt"))
+        asr_score = None
 
-    return (asr_score, asr_output)
+    return (asr_output, asr_score)
 
-def run_kws(target, source, env):
-    return None
+kws_defaults = sum(
+    [
+        [("%s_FILE" % (k), v) for k, v in
+         [("VOCABULARY", "${IBM_MODELS}/${LANGUAGE_ID}/${PACK}/models/vocab"),
+          ("IV_DICTIONARY", "${IBM_MODELS}/${LANGUAGE_ID}/${PACK}/kws-resources/kws-resources*/dict.IV*"),
+          ("OOV_DICTIONARY", "${IBM_MODELS}/${LANGUAGE_ID}/${PACK}/kws-resources/kws-resources*/dict.OOV*"),
+          ("SEGMENTATION", "${IBM_MODELS}/${LANGUAGE_ID}/${PACK}/segment/babel${LANGUAGE_ID}.dev.*db"),
+          ("KEYWORDS", "${INDUSDB_PATH}/*${LANGUAGE_ID}*.kwlist.xml"),
+          ("RTTM", "${INDUSDB_PATH}/*${LANGUAGE_ID}*/*${LANGUAGE_ID}*dev.rttm"),
+          ("ECF", "${INDUSDB_PATH}/*${LANGUAGE_ID}*.ecf.xml"),
+          ]],
+        ],
+    []
+    )
+
+
+def run_kws(env, name, asr_output, *args, **kw):
+    language_id = kw["LANGUAGE_ID"]
+    language = id_to_language[language_id]
+    files = {}
+    directories = {}
+    parameters = {}
+
+    directories["OUTPUT_PATH"] = pjoin("work", "kws", language, kw["PACK"], name)
+    directories["LATTICE_PATH"] = pjoin(asr_output.get_dir().rstr(), "lat")
+    asr_output_path = asr_output.get_dir()
+    renv = env.Clone(**kw)
+
+    for k, v in kws_defaults:
+        if k.endswith("FILE"):
+            files[k] = renv.Glob(v)
+        elif k.endswith("PATH"):
+            directories[k] = renv.Dir(v)
+        else:
+            parameters[k] = v
+    
+    for k, v in kw.iteritems():
+        if k.endswith("FILE"):
+            files[k] = renv.Glob(v)
+        elif k.endswith("PATH"):
+            directories[k] = renv.Dir(v)
+        else:
+            parameters[k] = v
+
+    for k in files.keys():
+        files[k] = files[k][0]
+
+    g = re.match(r".*(babel%.3d.*)_conv-dev.ecf.xml" % (language_id), files["ECF_FILE"].rstr()).groups()[0]
+    parameters["EXPID"] = "KWS13_IBM_%s_conv-dev_BaDev_KWS_LimitedLP_BaseLR_NTAR_p-test-STO_1" % (g)
+
+    logging.debug("\n\t".join(
+            ["Files:"] +
+            ["%s = %s" % (k, v) for k, v in files.iteritems()] +
+            ["Directories:"] +
+            ["%s = %s" % (k, v) for k, v in directories.iteritems()] +
+            ["Parameters:"] +
+            ["%s = %s" % (k, v) for k, v in parameters.iteritems()]
+            ))
+
+    if not env["RUN_KWS"]:
+         return None
+    else:
+
+        # just make some local variables from the experiment definition (for convenience)
+        iv_dict = files["VOCABULARY_FILE"]
+        oov_dict = files["OOV_DICTIONARY_FILE"]
+        segmentation_file = files["SEGMENTATION_FILE"]
+        kw_file = files["KEYWORDS_FILE"]
+
+        iv_query_terms, oov_query_terms, term_map, word_to_word_fst, kw_file = env.QueryFiles([pjoin(directories["OUTPUT_PATH"], x) for x in ["iv_queries.txt", 
+                                                                                                                                              "oov_queries.txt",
+                                                                                                                                              "term_map.txt",
+                                                                                                                                              "word_to_word.fst",
+                                                                                                                                              "kwfile.xml"]], 
+                                                                                              [kw_file, iv_dict, env.Value(language_id), env.Value("")])
+        # JOBS LATTICE_DIRECTORY KW_FILE RTTM_FILE
+        base_path = directories["OUTPUT_PATH"]
+        lattice_directory = pjoin(asr_output_path.rstr(), "lat")
+
+
+        full_lattice_list = env.LatticeList(pjoin(directories["OUTPUT_PATH"], "lattice_list.txt"),
+                                            [segmentation_file, env.Value(lattice_directory)])
+        env.Depends(full_lattice_list, asr_output)
+
+        lattice_lists = env.SplitList([pjoin(directories["OUTPUT_PATH"], "lattice_list_%d.txt" % (n + 1)) for n in range(env["JOBS"])], full_lattice_list)
+
+        wordpron = env.WordPronounceSymTable(pjoin(directories["OUTPUT_PATH"], "in_vocabulary_symbol_table.txt"),
+                                             iv_dict)
+
+        isym = env.CleanPronounceSymTable(pjoin(directories["OUTPUT_PATH"], "cleaned_in_vocabulary_symbol_table.txt"),
+                                          wordpron)
+
+        mdb = env.MungeDatabase(pjoin(directories["OUTPUT_PATH"], "munged_database.txt"),
+                                [segmentation_file, full_lattice_list])
+
+        padfst = env.BuildPadFST(pjoin(directories["OUTPUT_PATH"], "pad_fst.txt"),
+                                 wordpron)
+
+        full_data_list = env.CreateDataList(pjoin(directories["OUTPUT_PATH"], "full_data_list.txt"),
+                                            [mdb] + [env.Value({"oldext" : "fsm.gz", 
+                                                                "ext" : "fst",
+                                                                "subdir_style" : "hub4",
+                                                                "LATTICE_DIR" : directories["LATTICE_PATH"],
+                                                                })], BASE_PATH=directories["OUTPUT_PATH"])        
+
+        ecf_file = env.ECFFile(pjoin(directories["OUTPUT_PATH"], "ecf.xml"), mdb)
+
+        data_lists = env.SplitList([pjoin(directories["OUTPUT_PATH"], "data_list_%d.txt" % (n + 1)) for n in range(env["JOBS"])], full_data_list)
+
+        p2p_fst = env.FSTCompile(pjoin(directories["OUTPUT_PATH"], "p2p_fst.txt"),
+                                 [isym, word_to_word_fst])
+
+        wtp_lattices = []
+
+        for i, (data_list, lattice_list) in enumerate(zip(data_lists, lattice_lists)):
+            wp = env.WordToPhoneLattice(pjoin(directories["OUTPUT_PATH"], "lattices", "lattice_generation-%d.stamp" % (i + 1)), 
+                                        [data_list, lattice_list, wordpron, iv_dict, env.Value({"PRUNE_THRESHOLD" : -1,
+                                                                                                "EPSILON_SYMBOLS" : "'<s>,</s>,~SIL,<HES>'",
+                                                                                                })])
+
+            fl = env.GetFileList(pjoin(directories["OUTPUT_PATH"], "file_list-%d.txt" % (i + 1)), 
+                                 [data_list, wp])
+            idx = env.BuildIndex(pjoin(directories["OUTPUT_PATH"], "index-%d.fst" % (i + 1)),
+                                 fl)
+
+            wtp_lattices.append((wp, data_list, lattice_list, fl, idx))
+
+        merged = {}
+        for query_type, query_file in zip(["in_vocabulary", "out_of_vocabulary"], [iv_query_terms, oov_query_terms]):
+            queries = env.QueryToPhoneFST(pjoin(directories["OUTPUT_PATH"], query_type, "query.fst"), 
+                                          [p2p_fst, isym, iv_dict, query_file, env.Value({"n" : 1, "I" : 1, "OUTDIR" : pjoin(directories["OUTPUT_PATH"], query_type, "queries")})])
+            searches = []
+            for i, (wtp_lattice, data_list, lattice_list, fl, idx) in enumerate(wtp_lattices):
+                searches.append(env.StandardSearch(pjoin(directories["OUTPUT_PATH"], query_type, "search_output-%d.txt" % (i + 1)),
+                                                   [data_list, isym, idx, padfst, queries, env.Value({"PRECISION" : "'%.4d'", "TITLE" : "std.xml", "LANGUAGE_ID" : language_id})]))
+
+
+
+            qtl, res_list, res, ures = env.Merge([pjoin(directories["OUTPUT_PATH"], query_type, x) for x in ["ids_to_query_terms.txt", "result_file_list.txt", "search_results.xml", "unique_search_results.xml"]], 
+                                                 [query_file] + searches + [env.Value({"MODE" : "merge-default",
+                                                                                       "PADLENGTH" : 4,                                    
+                                                                                       "LANGUAGE_ID" : language_id})])
+
+            merged[query_type] = ures
+            om = env.MergeScores(pjoin(directories["OUTPUT_PATH"], query_type, "results.xml"), 
+                                 res)
+
+        iv_oov = env.MergeIVOOV(pjoin(directories["OUTPUT_PATH"], "iv_oov_results.xml"), 
+                                [merged["in_vocabulary"], merged["out_of_vocabulary"], term_map, files["KEYWORDS_FILE"]])
+
+        norm = env.Normalize(pjoin(directories["OUTPUT_PATH"], "norm.kwslist.xml"), 
+                             [iv_oov, kw_file])
+
+        normSTO = env.NormalizeSTO(pjoin(directories["OUTPUT_PATH"], "normSTO.kwslist.xml"), 
+                                   norm)
+
+        kws_score = env.Score(pjoin(directories["OUTPUT_PATH"], "scoring", "Full-Occur-MITLLFA3-AppenWordSeg.sum.txt"), 
+                              [normSTO, kw_file, env.Value({"RTTM_FILE" : str(files["RTTM_FILE"]), "ECF_FILE" : ecf_file[0].rstr(), "EXPID" : parameters["EXPID"]})])
+
+        return kws_score
+
 
 def build_extrinsic_tables(target, source, env):
     files = source[0].read()
