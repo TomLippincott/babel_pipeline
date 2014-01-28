@@ -139,12 +139,11 @@ def run_asr(env, name, *args, **kw):
 
         # evaluate the output
         asr_score = env.ScoreResults(env.Dir(pjoin("work", "asr", "scoring", language, parameters["PACK"], name)),
-                                     [env.Dir(os.path.abspath(pjoin(directories["OUTPUT_PATH"], "ctm"))), files["STM_FILE"], asr_output])
+                                     [env.Dir(os.path.abspath(pjoin(directories["OUTPUT_PATH"], "ctm"))), files["STM_FILE"], asr_output])[0]
     else:
         asr_output = env.File(pjoin(directories["OUTPUT_PATH"], "timestamp.txt"))
         asr_score = None
-
-    return (asr_output, asr_score)
+    return env.Flatten([asr_output, asr_score])
 
 kws_defaults = sum(
     [
@@ -152,7 +151,7 @@ kws_defaults = sum(
          [("VOCABULARY", "${IBM_MODELS}/${LANGUAGE_ID}/${PACK}/models/vocab"),
           ("IV_DICTIONARY", "${IBM_MODELS}/${LANGUAGE_ID}/${PACK}/kws-resources/kws-resources*/dict.IV*"),
           ("OOV_DICTIONARY", "${IBM_MODELS}/${LANGUAGE_ID}/${PACK}/kws-resources/kws-resources*/dict.OOV*"),
-          ("SEGMENTATION", "${IBM_MODELS}/${LANGUAGE_ID}/${PACK}/segment/babel${LANGUAGE_ID}.dev.*db"),
+          ("SEGMENTATION", "${IBM_MODELS}/${LANGUAGE_ID}/${PACK}/segment/babel${LANGUAGE_ID}.*dev.*db"),
           ("KEYWORDS", "${INDUSDB_PATH}/*${LANGUAGE_ID}*.kwlist.xml"),
           ("RTTM", "${INDUSDB_PATH}/*${LANGUAGE_ID}*/*${LANGUAGE_ID}*dev.rttm"),
           ("ECF", "${INDUSDB_PATH}/*${LANGUAGE_ID}*.ecf.xml"),
@@ -230,7 +229,7 @@ def run_kws(env, name, asr_output, *args, **kw):
                                             [segmentation_file, env.Value(lattice_directory)])
         env.Depends(full_lattice_list, asr_output)
 
-        lattice_lists = env.SplitList([pjoin(directories["OUTPUT_PATH"], "lattice_list_%d.txt" % (n + 1)) for n in range(env["JOBS"])], full_lattice_list)
+        lattice_lists = env.SplitList([pjoin(directories["OUTPUT_PATH"], "lattice_list_%d.txt" % (n + 1)) for n in range(env["LOCAL_JOBS"])], full_lattice_list)
 
         wordpron = env.WordPronounceSymTable(pjoin(directories["OUTPUT_PATH"], "in_vocabulary_symbol_table.txt"),
                                              iv_dict)
@@ -253,7 +252,7 @@ def run_kws(env, name, asr_output, *args, **kw):
 
         ecf_file = env.ECFFile(pjoin(directories["OUTPUT_PATH"], "ecf.xml"), mdb)
 
-        data_lists = env.SplitList([pjoin(directories["OUTPUT_PATH"], "data_list_%d.txt" % (n + 1)) for n in range(env["JOBS"])], full_data_list)
+        data_lists = env.SplitList([pjoin(directories["OUTPUT_PATH"], "data_list_%d.txt" % (n + 1)) for n in range(env["LOCAL_JOBS"])], full_data_list)
 
         p2p_fst = env.FSTCompile(pjoin(directories["OUTPUT_PATH"], "p2p_fst.txt"),
                                  [isym, word_to_word_fst])

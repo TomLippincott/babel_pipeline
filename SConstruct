@@ -207,7 +207,7 @@ for language, config in env["LANGUAGES"].iteritems():
 
 
         for pack in ["LLP"]:
-            (asr_output, asr_score) = env.RunASR("baseline", LANGUAGE_ID=language_id, PACK=pack, ACOUSTIC_WEIGHT=config["ACOUSTIC_WEIGHT"]) #, LANGUAGE_ID=language_id, PACK=pack)
+            (asr_output, asr_score) = env.RunASR("baseline", LANGUAGE_ID=language_id, PACK=pack, ACOUSTIC_WEIGHT=config["ACOUSTIC_WEIGHT"])
             kws_score = env.RunKWS("baseline", asr_output, LANGUAGE_ID=language_id, PACK=pack)
 
 
