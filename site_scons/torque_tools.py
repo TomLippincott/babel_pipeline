@@ -18,6 +18,38 @@ import shutil
 import tempfile
 import torque
 import time
+from common_tools import temp_file
+from os.path import join as pjoin
+
+def make_parallel_f2d_command(name, command, env, environment={}):
+    def action(target, source, env):
+        args = source[-1].read()
+        #max_local_jobs = env["MAXIMUM_LOCAL_JOBS"]
+        #num_scons_jobs = env.GetOption("num_jobs")
+        how_many = env["LOCAL_JOBS_PER_SCONS_INSTANCE"] #max(1, max_local_jobs / num_scons_jobs)
+        lines = [l for l in meta_open(source[0].rstr())]
+        per = len(lines) / how_many
+        temp_files = []
+        for i in range(how_many):
+            (fid, fname) = tempfile.mkstemp()
+            temp_files.append(fname)
+            start = per * i
+            end = per * (i + 1)
+            if i == how_many - 1:
+                end = len(lines)
+            meta_open(fname, "w").write("\n".join(lines[start:end]))
+            print env.subst(command % args, target=target[0].get_dir(), source=[fname] + source[1:])
+        for fname in temp_files:
+            try:
+                os.remove(fname)
+            except:
+                pass
+        return None
+    def emitter(target, source, env):
+        new_targets = pjoin(target[0].rstr(), "timestamp.txt")
+        return new_targets, source
+    return Builder(action=Action(action, cmdstr="%s(${TARGETS}, ${SOURCES})" % (name)), emitter=emitter)
+
 
 def meta_open(file_name, mode="r"):
     """
@@ -42,6 +74,7 @@ def run_command(cmd, env={}, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stde
     else:
         out, err = process.communicate()
     return out, err, process.returncode == 0
+
 
 
 def submit_job(target, source, env):

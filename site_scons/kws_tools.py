@@ -17,7 +17,7 @@ import time
 import shutil
 import tempfile
 from common_tools import meta_open, temp_dir
-from torque_tools import run_command
+from torque_tools import run_command, make_parallel_f2d_command
 from babel import ProbabilityList, Arpabo, Pronunciations, Vocabulary
 import torque
 
@@ -181,48 +181,18 @@ def split_list(target, source, env):
     return None
 
 def word_to_phone_lattice_torque(target, source, env):
-    """
-    NEEDS WORK!
-    The most substantial computational work.  Uses the IBM binary 'wrd2phlattice'
-
-Usage: /mnt/calculon-minor/lorelei_svn/KWS/bin64/wrd2phlattice [-opts] [output_dir] [lattice_list_file]               
--d file          pronunciation dictionary                                       
--D file          data file, 6 fields per line: latid startime endtime fsmfullpath osymfulpath latfulpath 
--s file          word(pron) symtable                                            
--c               if specified, loaded lattice is expected to be in "cons" format 
--t               if specified: input lattices are assumed to have fsm.gz format 
-                 o/w: input lattices are assumed to have openfst binary format  
--m               if specified: states are merged according to frame             
-                 NOTE: only possible if lattice is in fsm.gz format (-t=true)   
--e string        extension in lattice names (default: lat.gz)                   
--o file          file with oovregions, if specified, oovregions are marked      
--S string        comma-separated string of symbols to be replaced by eps        
--P double        pruning threshold (default: -1, no pruning)                    
--v               if specified, print debug output to stderr                     
--?               info/options
-    """
     args = source[-1].read()
     data_list, lattice_list, wordpron, dic = source[0:4]
-
-
     args["DICTIONARY"] = dic.abspath
     args["DATA_FILE"] = data_list.abspath
     args["FSMGZ_FORMAT"] = "true"
     args["CONFUSION_NETWORK"] = ""
     args["FSM_DIR"] = "temp"
     args["WORDPRONSYMTABLE"] = wordpron.abspath
-
-
     argstr = "-d %(DICTIONARY)s -D %(DATA_FILE)s -t %(FSMGZ_FORMAT)s -s %(WORDPRONSYMTABLE)s -S %(EPSILON_SYMBOLS)s %(CONFUSION_NETWORK)s -P %(PRUNE_THRESHOLD)d %(FSM_DIR)s" % args
-    #cmd = env.subst("${WRD2PHLATTICE} %s" % (argstr))
-    #argstr = "-d %(DICTIONARY)s -D %(DATA_FILE)s -t -s %(WORDPRONSYMTABLE)s -S %(EPSILON_SYMBOLS)s %(CONFUSION_NETWORK)s -P %(PRUNE_THRESHOLD)d %(FSM_DIR)s" % args
     if not os.path.exists(os.path.dirname(target[0].rstr())):
         os.makedirs(os.path.dirname(target[0].rstr()))
-
-    ##
     command = env.subst("cat ${SOURCES[1].abspath}|${WRD2PHLATTICE} %s" % (argstr), source=source)
-    #print command
-    #command = env.subst("${ATTILA_INTERPRETER} ${SOURCES[2].abspath} -n ${JOBS} -j $${PBS_ARRAYID} -w ${ACOUSTIC_WEIGHT} -l 1", source=source)
     interval = args.get("interval", 10)
     args["path"] = args.get("path", target[0].get_dir())
     stdout = env.Dir(args.get("stdout", args["path"])).Dir("stdout").rstr()
@@ -238,47 +208,16 @@ Usage: /mnt/calculon-minor/lorelei_svn/KWS/bin64/wrd2phlattice [-opts] [output_d
                      stderr_path=stderr,
                      other=args.get("other", ["#PBS -W group_list=yeticcls"]),
                      )
-    if env["HAS_TORQUE"]:
-        print str(job)
-        job.submit(commit=True)
-        while job.job_id in [x[0] for x in torque.get_jobs(True)]:
-            logging.info("sleeping...")
-            time.sleep(interval)
-    else:
-        logging.info("no Torque server, but I would submit:\n%s" % (job))
+    job.submit(commit=True)
+    while job.job_id in [x[0] for x in torque.get_jobs(True)]:
+        logging.info("sleeping...")
+        time.sleep(interval)
     with meta_open(target[0].rstr(), "w") as ofd:
         ofd.write(time.asctime() + "\n")
-    ##
-
-    #stdout, stderr, success = run_command(cmd, env={"LD_LIBRARY_PATH" : env.subst(env["LIBRARY_OVERLAY"])}, stdin=meta_open(lattice_list.rstr()), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    #if not success:
-    #    return stderr
-    #else:
-    #    meta_open(target[0].rstr(), "w").write("%s" % (time.time()))
     return None
 
 
 def word_to_phone_lattice(target, source, env):
-    """
-    NEEDS WORK!
-    The most substantial computational work.  Uses the IBM binary 'wrd2phlattice'
-
-Usage: /mnt/calculon-minor/lorelei_svn/KWS/bin64/wrd2phlattice [-opts] [output_dir] [lattice_list_file]               
--d file          pronunciation dictionary                                       
--D file          data file, 6 fields per line: latid startime endtime fsmfullpath osymfulpath latfulpath 
--s file          word(pron) symtable                                            
--c               if specified, loaded lattice is expected to be in "cons" format 
--t               if specified: input lattices are assumed to have fsm.gz format 
-                 o/w: input lattices are assumed to have openfst binary format  
--m               if specified: states are merged according to frame             
-                 NOTE: only possible if lattice is in fsm.gz format (-t=true)   
--e string        extension in lattice names (default: lat.gz)                   
--o file          file with oovregions, if specified, oovregions are marked      
--S string        comma-separated string of symbols to be replaced by eps        
--P double        pruning threshold (default: -1, no pruning)                    
--v               if specified, print debug output to stderr                     
--?               info/options
-    """
     args = source[-1].read()
     data_list, lattice_list, wordpron, dic = source[0:4]
     args["DICTIONARY"] = dic.rstr()
@@ -287,17 +226,9 @@ Usage: /mnt/calculon-minor/lorelei_svn/KWS/bin64/wrd2phlattice [-opts] [output_d
     args["CONFUSION_NETWORK"] = ""
     args["FSM_DIR"] = "temp"
     args["WORDPRONSYMTABLE"] = wordpron.rstr()
-    cmd = env.subst("${WRD2PHLATTICE}")
-    argstr = "-d %(DICTIONARY)s -D %(DATA_FILE)s -t %(FSMGZ_FORMAT)s -s %(WORDPRONSYMTABLE)s -S %(EPSILON_SYMBOLS)s %(CONFUSION_NETWORK)s -P %(PRUNE_THRESHOLD)d %(FSM_DIR)s" % args
-    #argstr = "-d %(DICTIONARY)s -D %(DATA_FILE)s -t -s %(WORDPRONSYMTABLE)s -S %(EPSILON_SYMBOLS)s %(CONFUSION_NETWORK)s -P %(PRUNE_THRESHOLD)d %(FSM_DIR)s" % args
-    if not os.path.exists(os.path.dirname(target[0].rstr())):
-        os.makedirs(os.path.dirname(target[0].rstr()))
-    stdout, stderr, success = run_command("%s %s" % (cmd, argstr), env={"LD_LIBRARY_PATH" : env.subst(env["LIBRARY_OVERLAY"])}, stdin=meta_open(lattice_list.rstr()), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    if not success:
-        return stderr
-    else:
-        meta_open(target[0].rstr(), "w").write("%s" % (time.time()))
-    return None
+    return ("${WRD2PHLATTICE} -d %(DICTIONARY)s -D %(DATA_FILE)s -t %(FSMGZ_FORMAT)s -s %(WORDPRONSYMTABLE)s -S %(EPSILON_SYMBOLS)s %(CONFUSION_NETWORK)s -P %(PRUNE_THRESHOLD)d %(FSM_DIR)s",
+            args)
+
 
 
 
@@ -683,6 +614,23 @@ def TOOLS_ADD(env):
         BUILDERS["WordToPhoneLattice"] = Builder(action=word_to_phone_lattice_torque)
         BUILDERS["StandardSearch"] = Builder(action=standard_search_torque)
     else:
-        BUILDERS["WordToPhoneLattice"] = Builder(action=word_to_phone_lattice)
+        BUILDERS["WordToPhoneLattice"] = make_parallel_f2d_command(
+            "WordToPhoneLattice",
+            "${WRD2PHLATTICE} -d ${SOURCES[2]} -D ${SOURCES[0]} -t %(FSMGZ_FORMAT)s -s ${SOURCES[1]} -S %(EPSILON_SYMBOLS)s %(CONFUSION_NETWORK)s -P %(PRUNE_THRESHOLD)d ${TARGET}",
+            env)
+        #{},
+        #    {},
+        #    None
+        #    )
+        #Builder(action=word_to_phone_lattice)
         BUILDERS["StandardSearch"] = Builder(action=standard_search)
     env.Append(BUILDERS=BUILDERS)
+
+    # args["DICTIONARY"] = dic.rstr()
+    # args["DATA_FILE"] = data_list.rstr()
+    # args["FSMGZ_FORMAT"] = "true"
+    # args["CONFUSION_NETWORK"] = ""
+    # args["FSM_DIR"] = "temp"
+    # args["WORDPRONSYMTABLE"] = wordpron.rstr()
+    # return ("${WRD2PHLATTICE} -d %(DICTIONARY)s -D %(DATA_FILE)s -t %(FSMGZ_FORMAT)s -s %(WORDPRONSYMTABLE)s -S %(EPSILON_SYMBOLS)s %(CONFUSION_NETWORK)s -P %(PRUNE_THRESHOLD)d %(FSM_DIR)s",
+    #         args)

@@ -20,48 +20,49 @@ vars = Variables("custom.py")
 vars.AddVariables(
     ("OUTPUT_WIDTH", "", 130),
 
+    # these variables determine what experiments are performed
+    ("LANGUAGES", "", {}),
     ("RUN_ASR", "", False),
     ("RUN_KWS", "", False),
     ("EVALUATE_PRONUNCIATIONS", "", False),
-
     ("EXPANSION_SIZES", "", []),
     ("EXPANSION_WEIGHTS", "", []),
 
-    ("LANGUAGE_PACKS", "", None),
-    ("IBM_MODELS", "", None),
-    ("LORELEI_SVN", "", None),
-    ("ATTILA_PATH", "", None),
-    ("VOCABULARY_EXPANSION_PATH", "", None),
-    ("INDUSDB_PATH", "", None),
+    # these variables determine how parallelism is exploited
+    ("HAS_TORQUE", "", False),
+    ("MAXIMUM_LOCAL_JOBS", "", 4),
+    ("MAXIMUM_TORQUE_JOBS", "", 200),
 
+    # these variables define the locations of various tools and data
+    ("BASE_PATH", "", None),
+    ("OVERLAY", "", "${BASE_PATH}/local"),
+    ("LANGUAGE_PACKS", "", "${BASE_PATH}/language_packs"),
+    ("IBM_MODELS", "", "${BASE_PATH}/ibm_models"),
+    ("LORELEI_SVN", "", "${BASE_PATH}/lorelei_svn"),
+    ("ATTILA_PATH", "", "${BASE_PATH}/VT-2-5-babel"),
+    ("VOCABULARY_EXPANSION_PATH", "", "${BASE_PATH}/vocabulary_expansions"),
+    ("INDUSDB_PATH", "", "${BASE_PATH}/lorelei_resources/IndusDB"),
     ("SEQUITUR_PATH", "", ""),
     ("ATTILA_INTERPRETER", "", "${ATTILA_PATH}/tools/attila/attila"),
-    ("OUTPUT_PATH", "", ""),
-    ("ADD_WORDS", "", "/usr/bin/add_words"),
-    ("BABEL_REPO", "", None),
-    ("BABEL_RESOURCES", "", None),
+    #("OUTPUT_PATH", "", ""),
+    #("ADD_WORDS", "", "/usr/bin/add_words"),
+    #("BABEL_REPO", "", None),
+    #("BABEL_RESOURCES", "", None),
     ("F4DE", "", None),
     ("JAVA_NORM", "", "${BABEL_REPO}/KWS/examples/babel-dryrun/javabin"),
     ("OVERLAY", "", None),
     ("LIBRARY_OVERLAY", "", "${OVERLAY}/lib:${OVERLAY}/lib64:${LORELEI_TOOLS}/boost_1_49_0/stage/lib/"),
-    ("EXPERIMENTS", "", {}),
-    ("LANGUAGES", "", {}),
     ("LOG_LEVEL", "", logging.INFO),
-    ("LOG_DESTINATION", "", sys.stdout),
-    ("HAS_TORQUE", "", False),
+    ("LOG_DESTINATION", "", sys.stdout),    
     ("PYTHON_INTERPRETER", "", None),
     ("SCORE_SCRIPT", "", None),
-    ("INDUS_DB", "", None),
+    #("INDUS_DB", "", None),
     ("SCLITE_BINARY", "", None),
-    ("JOBS", "", 4),
-    ("LOCAL_JOBS", "", 4),
-    ("BABEL_REPO", "", None),
-    ("BABEL_RESOURCES", "", None),
+    #("BABEL_REPO", "", None),
+    #("BABEL_RESOURCES", "", None),
     ("LORELEI_TOOLS", "", None),
-    ("G2P", "", None),
- 
-    ("OVERLAY", "", None),
-
+    #("G2P", "", None),
+    
     # these variables all have default definitions in terms of the previous, but may be overridden as needed
     ("PYTHON", "", "/usr/bin/python"),
     ("PERL", "", "/usr/bin/perl"),
@@ -84,7 +85,7 @@ vars.AddVariables(
     ("KWSEVALPL", "", "${F4DE}/KWSEval/tools/KWSEval/KWSEval.pl"),    
     )
 
-
+#vars.Add("JOBS_PER_SCONS_INSTANCE", default=4)
 
 #
 # create the actual build environment we'll be using
@@ -93,6 +94,13 @@ env = Environment(variables=vars, ENV={}, TARFLAGS="-c -z", TARSUFFIX=".tgz",
                   tools=["default", "textfile"] + [x.TOOLS_ADD for x in [asr_tools, kws_tools, torque_tools, morfessor_tools, babel_tools]],
                   BUILDERS={"CopyFile" : Builder(action="cp ${SOURCE} ${TARGET}")}
                   )
+
+#
+# calculate how much parallelism can exist for each SCons instance
+#
+num_instances = env.GetOption("num_jobs")
+env.Replace(LOCAL_JOBS_PER_SCONS_INSTANCE=max(env["MAXIMUM_LOCAL_JOBS"] / num_instances, 1))
+env.Replace(TORQUE_JOBS_PER_SCONS_INSTANCE=max(env["MAXIMUM_TORQUE_JOBS"] / num_instances, 1))
 
 Help(vars.GenerateHelpText(env))
 
@@ -132,7 +140,7 @@ for language, config in env["LANGUAGES"].iteritems():
 
     language_id = config["LANGUAGE_ID"]
     locale = config["LOCALE"]
-    exp_id = config["BIG_ID"]
+    #exp_id = config["BIG_ID"]
 
     # full_transcripts, limited_transcripts, dev_transcripts = env.SplitTrainDev(
     #     [pjoin("work", "transcripts", language, "%s_transcripts.txt.gz" % (name)) for name in ["full", "limited", "development"]],
@@ -186,7 +194,7 @@ for language, config in env["LANGUAGES"].iteritems():
     # #continue
     results[(language, "Limited")] = {}
 
-    if os.path.exists(pjoin(env["IBM_MODELS"], str(language_id))):
+    if os.path.exists(pjoin(env.subst(env["IBM_MODELS"]), str(language_id))):
 
         #full_pronunciations_file = env.File(pjoin(env["LORELEI_SVN"], str(language_id), "FullLP", "models", "dict.test"))
         #limited_pronunciations_file = env.File(pjoin(env["LORELEI_SVN"], str(language_id), "LimitedLP", "models", "dict.test"))

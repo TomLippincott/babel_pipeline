@@ -229,7 +229,7 @@ def run_kws(env, name, asr_output, *args, **kw):
                                             [segmentation_file, env.Value(lattice_directory)])
         env.Depends(full_lattice_list, asr_output)
 
-        lattice_lists = env.SplitList([pjoin(directories["OUTPUT_PATH"], "lattice_list_%d.txt" % (n + 1)) for n in range(env["LOCAL_JOBS"])], full_lattice_list)
+        lattice_lists = env.SplitList([pjoin(directories["OUTPUT_PATH"], "lattice_list_%d.txt" % (n + 1)) for n in range(env["LOCAL_JOBS_PER_SCONS_INSTANCE"])], full_lattice_list)
 
         wordpron = env.WordPronounceSymTable(pjoin(directories["OUTPUT_PATH"], "in_vocabulary_symbol_table.txt"),
                                              iv_dict)
@@ -252,12 +252,21 @@ def run_kws(env, name, asr_output, *args, **kw):
 
         ecf_file = env.ECFFile(pjoin(directories["OUTPUT_PATH"], "ecf.xml"), mdb)
 
-        data_lists = env.SplitList([pjoin(directories["OUTPUT_PATH"], "data_list_%d.txt" % (n + 1)) for n in range(env["LOCAL_JOBS"])], full_data_list)
+        data_lists = env.SplitList([pjoin(directories["OUTPUT_PATH"], "data_list_%d.txt" % (n + 1)) for n in range(env["LOCAL_JOBS_PER_SCONS_INSTANCE"])], full_data_list)
 
         p2p_fst = env.FSTCompile(pjoin(directories["OUTPUT_PATH"], "p2p_fst.txt"),
                                  [isym, word_to_word_fst])
 
-        wtp_lattices = []
+        
+
+        #word_to_phone_lattices = env.WordToPhoneLattice(target=env.Dir(pjoin(directories["OUTPUT_PATH"], "lattices")), 
+        #                                                source=[full_lattice_list, wordpron, iv_dict, env.Value({"PRUNE_THRESHOLD" : -1, 
+        #                                                                                                         "FSMGZ_FORMAT" : "",
+        #                                                                                                         "CONFUSION_NETWORK" : "",
+        #                                                                                                         "EPSILON_SYMBOLS" : "'<s>,</s>,~SIL,<HES>'"})])
+
+        
+        return None
 
         for i, (data_list, lattice_list) in enumerate(zip(data_lists, lattice_lists)):
             wp = env.WordToPhoneLattice(pjoin(directories["OUTPUT_PATH"], "lattices", "lattice_generation-%d.stamp" % (i + 1)), 

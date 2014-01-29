@@ -515,8 +515,8 @@ def run_asr_experiment(target, source, env):
     out, err, success = run_command(construct_command)
     if not success:
         return out + err
-    command = env.subst("${ATTILA_INTERPRETER} ${SOURCES[2].abspath} -n ${LOCAL_JOBS} -j %d -w ${ACOUSTIC_WEIGHT} -l 1", source=source)
-    procs = [subprocess.Popen(shlex.split(command % i)) for i in range(env["LOCAL_JOBS"])]
+    command = env.subst("${ATTILA_INTERPRETER} ${SOURCES[2].abspath} -n ${LOCAL_JOBS_PER_SCONS_INSTANCE} -j %d -w ${ACOUSTIC_WEIGHT} -l 1", source=source)
+    procs = [subprocess.Popen(shlex.split(command % i)) for i in range(env["LOCAL_JOBS_PER_SCONS_INSTANCE"])]
     for p in procs:
         p.wait()
     return None
@@ -533,7 +533,7 @@ def run_asr_experiment_torque(target, source, env):
         os.makedirs(stdout)
     if not os.path.exists(stderr):
         os.makedirs(stderr)
-    command = env.subst("${ATTILA_INTERPRETER} ${SOURCES[2].abspath} -n ${JOBS} -j $${PBS_ARRAYID} -w ${ACOUSTIC_WEIGHT} -l 1", source=source)
+    command = env.subst("${ATTILA_INTERPRETER} ${SOURCES[2].abspath} -n ${TORQUE_JOBS_PER_SCONS_INSTANCE} -j $${PBS_ARRAYID} -w ${ACOUSTIC_WEIGHT} -l 1", source=source)
     interval = args.get("interval", 10)
     job = torque.Job(args.get("name", "scons"),
                      commands=[command],
@@ -555,7 +555,7 @@ def run_asr_experiment_torque(target, source, env):
     return None
 
 def run_asr_experiment_emitter(target, source, env):
-    args = {"array" : env["JOBS"],
+    args = {"array" : env["TORQUE_JOBS_PER_SCONS_INSTANCE"],
             "interval" : 120}
     try:
         args.update(source[0].read())
