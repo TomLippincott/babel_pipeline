@@ -2,36 +2,30 @@ import os.path
 from os.path import join as pjoin
 from glob import glob
 
-#BASE_PATH = "/home/tom/projects/babel_data"
-LORELEI_SVN = pjoin(BASE_PATH, "lorelei_svn")
-LANGUAGE_PACKS = pjoin(BASE_PATH, "language_packs")
-IBM_MODELS = pjoin(BASE_PATH, "ibm_models")
-ATTILA_PATH = pjoin(BASE_PATH, "VT-2-5-babel")
-INDUSDB_PATH = pjoin(BASE_PATH, "lorelei_resources", "IndusDB")
-VOCABULARY_EXPANSION_PATH = pjoin(BASE_PATH, "vocabulary_expansions")
-HAS_TORQUE = False
-JOBS = 100
-OVERLAY = pjoin(BASE_PATH, "local")
+# BASE_PATH = "/home/tom/projects/babel_data"
+# HAS_TORQUE = False
+# RUN_ASR = False
+# RUN_KWS = False
+# EXPANSION_SIZES = []
+# EXPANSION_WEIGHTS = []
 
 LANGUAGES = {}
-for name, id, big_id, acoustic_weight, locale in [
-    #("cantonese", 101, None),
-    ("assamese", 102, None, 0.09, "as_IN.utf8"),
-    ("bengali", 103, None, None, None),
-    ("pashto", 104, None, None, None),
-    ("turkish", 105, None, None, None),
-    ("tagalog", 106, None, 0.13, "tl_PH.utf8"), 
-    #("vietnamese", 107, None), 
-    #("haitian_creole", 201, None, None, None),    
-    ("zulu", 206, None, None, None),    
+for name, id, skip_roman, acoustic_weight, locale, phoneme_swap in [
+    #("cantonese", 101, True, None, None, {}),
+    #("assamese", 102, True, 0.09, "as_IN.utf8", {}),
+    #("bengali", 103, False, None, None, {}),
+    #("pashto", 104, False, None, None, {}),
+    #("turkish", 105, False, None, None, {}),
+    #("tagalog", 106, False, 0.13, "tl_PH.utf8", {}), 
+    #("vietnamese", 107, True, None, None, {}), 
+    #("haitian_creole", 201, False, None, None, {}),    
+    #("zulu", 206, False, .053, None, {"3" : "E"}),    
     ]:
 
-    if big_id == None:
-        big_id = "KWS13_IBM_babel%db-v0.4_conv-dev_BaDev_KWS_LimitedLP_BaseLR_NTAR_p-test-STO_1" % (id)
-
-    LANGUAGES[(name, id, big_id)] = {        
+    LANGUAGES[name] = {        
         "LANGUAGE_ID" : id,
-        "BIG_ID" : big_id,
+        "SKIP_ROMAN" : skip_roman,
         "LOCALE" : locale,
         "ACOUSTIC_WEIGHT" : acoustic_weight,
+        "PHONEME_SWAP" : phoneme_swap,
         }
