@@ -30,6 +30,7 @@ matplotlib.use("Agg")
 from matplotlib import pyplot
 import numpy
 
+
 def meta_open(file_name, mode="r"):
     """
     Convenience function for opening a file with gzip if it ends in "gz", uncompressed otherwise.
@@ -40,27 +41,13 @@ def meta_open(file_name, mode="r"):
         return open(file_name, mode)
 
 
-# def run_command(cmd, env={}, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, data=None, cwd=None):
-#     """
-#     Simple convenience wrapper for running commands (not an actual Builder).
-#     """
-#     if isinstance(cmd, basestring):
-#         cmd = shlex.split(cmd)
-#     logging.info("Running command: %s", " ".join(cmd))
-#     process = subprocess.Popen(cmd, env=env, stdin=stdin, stdout=stdout, stderr=stderr, cwd=cwd)
-#     if data:
-#         out, err = process.communicate(data)
-#     else:
-#         out, err = process.communicate()
-#     return out, err, process.returncode == 0
-
-
 def pronunciations_to_vocabulary(target, source, env):
     with meta_open(source[0].rstr()) as ifd:
         d = Pronunciations(ifd)
     with meta_open(target[0].rstr(), "w") as ofd:
         ofd.write(d.format_vocabulary())
     return None
+
 
 def appen_to_attila_old(target, source, env, for_signature):
     pron, pnsp, tag = target
@@ -306,31 +293,6 @@ def augment_language_model_emitter(target, source, env):
         return new_targets, new_sources
 
 
-# def augment_language_model_from_babel(target, source, env):
-#     """
-#     """
-#     (tnew_fid, tnew), (tdict_fid, tdict), (tlm_fid, tlm) = [tempfile.mkstemp() for i in range(3)]
-#     (tnewdict_fid, tnewdict), (tnewlm_fid, tnewlm) = [tempfile.mkstemp() for i in range(2)]
-#     bad = "\xc3\xb1"
-#     words = {}
-#     for m in re.finditer(r"^(.*)\(\d+\) (\S+) \[ wb \] (.*) \[ wb \]$", meta_open(source[0].rstr()).read().replace(bad, "XQXQ"), re.M):
-#         word, a, b = m.groups()
-#         words[word] = words.get(word, []) + ["%s %s" % (a, b)]
-#     swords = sorted(words.iteritems())
-#     meta_open(tnew, "w").write("\n".join([x[0] for x in swords]))
-#     meta_open(tdict, "w").write("\n".join(["\n".join(["%s %s" % (k, vv) for vv in v]) for k, v in swords]))
-#     meta_open(tlm, "w").write(meta_open(source[1].rstr()).read().replace(bad, "XQXQ"))
-#     out, err, success = run_command(["java", "-jar", "data/AddWord.jar", "-n", tnew, "-d", tdict, "-a", tlm, 
-#                                      "-D", tnewdict, "-A", tnewlm, "-p", "-4.844"])
-#     with meta_open(target[0].rstr(), "w") as newdict_fd, meta_open(target[1].rstr(), "w") as newlm_fd:
-#         newdict_fd.write(meta_open(tnewdict).read().replace("XQXQ", bad))
-#         newlm_fd.write(meta_open(tnewlm).read().replace("XQXQ", bad))
-#     [os.remove(x) for x in [tnew, tdict, tlm, tnewdict, tnewlm]]
-#     if not success:
-#         return err
-#     return None
-
-
 def collect_text(target, source, env):
     words = set()
     with meta_open(target[0].rstr(), "w") as ofd:
@@ -354,8 +316,10 @@ def collect_text(target, source, env):
         ofd.write("\n".join(sorted(words)) + "\n")                                      
     return None
 
+
 def collect_text_emitter(target, source, env):
     return target, source
+
 
 def create_asr_experiment(target, source, env):
 
@@ -509,6 +473,7 @@ def filter_babel_gum(target, source, env):
             prob_ofd.write(prob.format())
     return None
 
+
 def run_asr_experiment(target, source, env):
     args = source[-1].read()
     construct_command = env.subst("${ATTILA_INTERPRETER} ${SOURCES[1].abspath}", source=source)
@@ -520,6 +485,7 @@ def run_asr_experiment(target, source, env):
     for p in procs:
         p.wait()
     return None
+
 
 def run_asr_experiment_torque(target, source, env):
     args = source[-1].read()
@@ -546,13 +512,14 @@ def run_asr_experiment_torque(target, source, env):
     if env["HAS_TORQUE"]:
         job.submit(commit=True)
         while job.job_id in [x[0] for x in torque.get_jobs(True)]:
-            logging.info("sleeping...")
+            logging.debug("sleeping...")
             time.sleep(interval)
     else:
         logging.info("no Torque server, but I would submit:\n%s" % (job))
     with meta_open(target[0].rstr(), "w") as ofd:
         ofd.write(time.asctime() + "\n")
     return None
+
 
 def run_asr_experiment_emitter(target, source, env):
     args = {"array" : env["TORQUE_JOBS_PER_SCONS_INSTANCE"],
@@ -562,6 +529,7 @@ def run_asr_experiment_emitter(target, source, env):
     except:
         args["path"] = source[0].get_dir().rstr()
     return target[0].File("timestamp.txt"), source + [env.Value(args)]
+
 
 def score_results(target, source, env):
     """
@@ -619,15 +587,17 @@ def score_results(target, source, env):
             }
 
     # Run scoring
-    cmd ="%(SCLITE)s -r %(TRANSCRIPT)s %(TRANSCRIPT_FORMAT)s -O %(OUTPUT_ROOT)s -h %(HYPOTHESIS)s %(HYPOTHESIS_FORMAT)s -n %(OUTPUT_NAME)s -o %(OUTPUT_TYPES)s -e %(ENCODING)s -D -F" % args
+    cmd =env.subst("%(SCLITE)s -r %(TRANSCRIPT)s %(TRANSCRIPT_FORMAT)s -O %(OUTPUT_ROOT)s -h %(HYPOTHESIS)s %(HYPOTHESIS_FORMAT)s -n %(OUTPUT_NAME)s -o %(OUTPUT_TYPES)s -e %(ENCODING)s -D -F" % args)
     out, err, success = run_command(cmd)
     if not success:
         return out + err
     return None
 
+
 def score_emitter(target, source, env):
     new_targets = [pjoin(target[0].rstr(), x) for x in ["babel.sys", "all.ctm", "babel.dtl", "babel.pra", "babel.raw", "babel.sgml"]]
     return new_targets, source
+
 
 def collate_results(target, source, env):
     with meta_open(target[0].rstr(), "w") as ofd:
@@ -646,6 +616,7 @@ def plot_probabilities(target, source, env):
     pyplot.plot(ps)
     pyplot.savefig(target[0].rstr())
     return None
+
 
 def split_expansion(target, source, env):
     if len(source) == 2:
@@ -666,9 +637,11 @@ def split_expansion(target, source, env):
             ofd.write("\n".join(["%s\t%f" % (w, p) for w, p in vals]))
     return None
 
+
 def split_expansion_emitter(target, source, env):
     new_targets = [pjoin(env["BASE_PATH"], "%s.gz" % x) for x in ["morph", "lm", "lm_avg", "lm_morph"]]
     return new_targets, source
+
 
 def transcripts_to_vocabulary(target, source, env):
     word_counts = FrequencyList()
@@ -680,6 +653,7 @@ def transcripts_to_vocabulary(target, source, env):
     with meta_open(target[0].rstr(), "w") as ofd:
         ofd.write(word_counts.format())
     return None
+
 
 def plot_reduction(target, source, env):
     args = source[-1].read()
@@ -762,13 +736,16 @@ def plot_reduction(target, source, env):
         pyplot.clf()
     return None
 
+
 def plot_reduction_emitter(target, source, env):
     args = source[-1].read()
     new_targets = pjoin(os.path.dirname(source[0].rstr()), "%d_reduction.png" % (args["bins"]))
     return new_targets, source
 
+
 def plot_unigram_probabilities(target, source, env):
     return None
+
 
 def split_train_dev(target, source, env):
     data_path = source[0].rstr()
@@ -779,10 +756,12 @@ def split_train_dev(target, source, env):
                     ofd.write(ifd.read())
     return None
 
+
 def pronunciations_from_probability_list(target, source, env):
     with meta_open(source[0].rstr()) as pl_fd:
         pass
     return None
+
 
 def top_words(target, source, env):
     args = source[-1].read()
@@ -795,12 +774,13 @@ def top_words(target, source, env):
         pron_ofd.write(prons.format())
     return None
 
+
 def run_g2p(target, source, env):
     with temp_file() as tfname, meta_open(source[0].rstr()) as pl_fd:
         words = set([x.split()[0].split("(")[0] for x in pl_fd])
         with meta_open(tfname, "w") as t_fd:
             t_fd.write("\n".join(words))
-        out, err, success = run_command("%s %s/bin/g2p.py --model %s --encoding=%s --apply %s --variants-mass=%f  --variants-number=%d" % (env["PYTHON"], env["OVERLAY"], source[1].rstr(), "utf-8", tfname, .9, 4),
+        out, err, success = run_command(env.subst("%s %s/bin/g2p.py --model %s --encoding=%s --apply %s --variants-mass=%f  --variants-number=%d" % (env["PYTHON"], env["OVERLAY"], source[1].rstr(), "utf-8", tfname, .9, 4)),
                                         env={"PYTHONPATH" : env.subst("${OVERLAY}/lib/python2.7/site-packages")},
                                         )
         if not success:
@@ -809,6 +789,7 @@ def run_g2p(target, source, env):
             with meta_open(target[0].rstr(), "w") as out_fd:
                 out_fd.write(out)
     return None
+
 
 def g2p_to_babel(target, source, env):
     # include accuracy
@@ -839,6 +820,7 @@ def g2p_to_babel(target, source, env):
                 out_fd.write("%s(%.2d) %s\n" % (word, count, pronun))
     return None
 
+
 def pronunciation_performance(target, source, env):
     with meta_open(source[0].rstr()) as gold_fd, meta_open(source[1].rstr()) as gen_fd:
         tp, fp, fn = 0, 0, 0
@@ -863,6 +845,7 @@ def pronunciation_performance(target, source, env):
         with meta_open(target[0].rstr(), "w") as ofd:
             ofd.write("%f %f %f\n" % (prec, rec, f))
     return None
+
 
 def TOOLS_ADD(env):
     BUILDERS = {"SplitTrainDev" : Builder(action=split_train_dev),

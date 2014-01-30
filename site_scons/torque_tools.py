@@ -67,7 +67,7 @@ def run_command(cmd, env={}, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stde
     """
     if isinstance(cmd, basestring):
         cmd = shlex.split(cmd)
-    logging.info("Running command: %s", " ".join(cmd))
+    logging.debug("Running command: %s", " ".join(cmd))
     process = subprocess.Popen(cmd, env=env, stdin=stdin, stdout=stdout, stderr=stderr)
     if data:
         out, err = process.communicate(data)

@@ -104,7 +104,7 @@ def run_asr(env, name, *args, **kw):
     for k, v in kw.iteritems():
         searched[k] = searched.get(k, []) + [renv.subst(v)]
         if k.endswith("FILE"):
-            files[k] = files,get(k, []) + renv.Glob(v)
+            files[k] = files.get(k, []) + renv.Glob(str(v))
         elif k.endswith("PATH"):
             directories[k] = renv.Dir(v)
         else:            
