@@ -4,11 +4,13 @@ from os.path import join as pjoin
 import logging
 from functools import partial
 from glob import glob
+import vocabulary_tools
 import asr_tools
 import kws_tools
 import torque_tools
 import morfessor_tools
 import babel_tools
+import trmorph_tools
 import re
 
 
@@ -82,7 +84,7 @@ vars.AddVariables(
 # create the actual build environment we'll be using
 #
 env = Environment(variables=vars, ENV={}, TARFLAGS="-c -z", TARSUFFIX=".tgz",
-                  tools=["default", "textfile"] + [x.TOOLS_ADD for x in [asr_tools, kws_tools, torque_tools, morfessor_tools, babel_tools]],
+                  tools=["default", "textfile"] + [x.TOOLS_ADD for x in [asr_tools, kws_tools, torque_tools, babel_tools, trmorph_tools]],
                   BUILDERS={"CopyFile" : Builder(action="cp ${SOURCE} ${TARGET}")}
                   )
 
@@ -133,17 +135,22 @@ for language, config in env["LANGUAGES"].iteritems():
     limited_basic_expansions_file = env.File(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "expansions", "simple.ex"))
     limited_bigram_expansions_file = env.File(pjoin(env["VOCABULARY_EXPANSION_PATH"], "%s-subtrain" % language, "expansions", "bigram.ex"))
 
-    limited_basic_expansions = env.SplitExpansion([limited_basic_expansions_file, env.Value(100000)],
+    limited_basic_expansions = env.SplitExpansion([limited_basic_expansions_file, env.Value(50000)],
                                                   BASE_PATH=pjoin("work", "expansions", language, "limited", "basic"))
 
-    limited_bigram_expansions = env.SplitExpansion([limited_bigram_expansions_file, env.Value(100000)],
+    limited_bigram_expansions = env.SplitExpansion([limited_bigram_expansions_file, env.Value(50000)],
                                                    BASE_PATH=pjoin("work", "expansions", language, "limited", "bigram"))
+
+    for x in limited_basic_expansions + limited_bigram_expansions:
+        env.TurkishFilter(x)
     
     if os.path.exists(pjoin(env.subst(env["IBM_MODELS"]), str(language_id))):
-
         limited_pronunciations_file = env.File(pjoin(env["IBM_MODELS"], str(language_id), "LLP", "models", "dict.test")) #config["pronunciations"]
         limited_vocabulary_file = env.File(pjoin(env["IBM_MODELS"], str(language_id), "LLP", "models", "vocab"))
         limited_language_model_file = env.Glob(pjoin(env["IBM_MODELS"], str(language_id), "LLP", "models", "lm.*"))[0]
+        
+        for x in limited_basic_expansions + limited_bigram_expansions:
+            pass
 
         for pack in ["LLP"]:
 
@@ -151,7 +158,7 @@ for language, config in env["LANGUAGES"].iteritems():
             (asr_output, asr_score) = env.RunASR("baseline", LANGUAGE_ID=language_id, PACK=pack, ACOUSTIC_WEIGHT=config["ACOUSTIC_WEIGHT"])
             kws_score = env.RunKWS("baseline", asr_output, LANGUAGE_ID=language_id, PACK=pack)
 
-
+            continue
             # triple-oracle experiment
             oracle_pronunciations, oracle_pnsp, oracle_tags = env.AppenToAttila([pjoin("work", "oracles", language, pack, x) for x in 
                                                                                  ["oracle_pronunciations.txt", "oracle_pnsp.txt", "oracle_tags.txt"]],
@@ -176,7 +183,7 @@ for language, config in env["LANGUAGES"].iteritems():
                                                  PHONE_FILE=oracle_pnsp)
             kws_score = env.RunKWS("triple_oracle", asr_output, LANGUAGE_ID=language_id, PACK=pack)
             
-
+            continue
             for expansion in [limited_basic_expansions[1]]:
 
                 g2p = env.RunG2P(pjoin("work", "expansions", language, pack, "%s_g2p.gz" % (os.path.splitext(os.path.basename(expansion.rstr()))[0])), 
