@@ -293,28 +293,28 @@ def augment_language_model_emitter(target, source, env):
         return new_targets, new_sources
 
 
-def collect_text(target, source, env):
-    words = set()
-    with meta_open(target[0].rstr(), "w") as ofd:
-        for dname in source:
-            for fname in glob(os.path.join(dname.rstr(), "*.txt")) + glob(os.path.join(dname.rstr(), "*.txt.gz")):
-                with meta_open(fname) as ifd:
-                    for line in ifd:
-                        if not line.startswith("["):
-                            toks = []
-                            for x in line.lower().split():
-                                if x == "<hes>":
-                                    toks.append("<HES>")
-                                elif not x.startswith("<"):
-                                    toks.append(x)
-                            for t in toks:
-                                words.add(t)
-                            if len(toks) > 0:
-                                ofd.write("%s </s>\n" % (" ".join(toks)))
-    with meta_open(target[1].rstr(), "w") as ofd:
-        ofd.write("# BOS: <s>\n# EOS: </s>\n# UNK: <UNK>\n<s>\n</s>\n<UNK>\n")
-        ofd.write("\n".join(sorted(words)) + "\n")                                      
-    return None
+# def collect_text(target, source, env):
+#     words = set()
+#     with meta_open(target[0].rstr(), "w") as ofd:
+#         for dname in source:
+#             for fname in glob(os.path.join(dname.rstr(), "*.txt")) + glob(os.path.join(dname.rstr(), "*.txt.gz")):
+#                 with meta_open(fname) as ifd:
+#                     for line in ifd:
+#                         if not line.startswith("["):
+#                             toks = []
+#                             for x in line.lower().split():
+#                                 if x == "<hes>":
+#                                     toks.append("<HES>")
+#                                 elif not x.startswith("<"):
+#                                     toks.append(x)
+#                             for t in toks:
+#                                 words.add(t)
+#                             if len(toks) > 0:
+#                                 ofd.write("%s </s>\n" % (" ".join(toks)))
+#     with meta_open(target[1].rstr(), "w") as ofd:
+#         ofd.write("# BOS: <s>\n# EOS: </s>\n# UNK: <UNK>\n<s>\n</s>\n<UNK>\n")
+#         ofd.write("\n".join(sorted(words)) + "\n")                                      
+#     return None
 
 
 def collect_text_emitter(target, source, env):
@@ -847,13 +847,6 @@ def pronunciation_performance(target, source, env):
     return None
 
 
-def all_vocab_padded(target, source, env):
-    return None
-
-def in_language(target, source, env):
-    return None
-
-
 def TOOLS_ADD(env):
     env["FLOOKUP"] = "flookup"
     BUILDERS = {"SplitTrainDev" : Builder(action=split_train_dev),
@@ -865,7 +858,7 @@ def TOOLS_ADD(env):
                 #"AugmentLanguageModelFromBabel" : Builder(action=augment_language_model_from_babel),
                 "TranscriptVocabulary" : Builder(action=transcript_vocabulary),
                 "TrainPronunciationModel" : Builder(action=train_pronunciation_model),
-                "CollectText" : Builder(action=collect_text, emitter=collect_text_emitter),
+                #"CollectText" : Builder(action=collect_text, emitter=collect_text_emitter),
                 "BabelGumLexicon" : Builder(action=babelgum_lexicon),
                 "ReplacePronunciations" : Builder(action=replace_pronunciations),
                 #"ReplaceProbabilities" : Builder(action=replace_probabilities),
@@ -880,8 +873,6 @@ def TOOLS_ADD(env):
                 "TranscriptsToVocabulary" : Builder(action=transcripts_to_vocabulary),
                 
                 "CreateASRExperiment" : Builder(action=create_asr_experiment, emitter=create_asr_experiment_emitter),
-                "AllVocabPadded" : Builder(action=all_vocab_padded),
-                "InLanguage" : Builder(action=in_language),
 
                 #"RunASRExperiment" : Builder(action=run_asr_experiment, emitter=run_asr_experiment_emitter),
                 "PronunciationsFromProbabilityList" : Builder(action=pronunciations_from_probability_list),

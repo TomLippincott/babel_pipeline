@@ -12,7 +12,7 @@ import morfessor_tools
 import babel_tools
 import trmorph_tools
 import re
-
+from common_tools import meta_basename, meta_splitext
 
 #
 # load variable definitions from custom.py, and define them for SCons (seems like it should logically
@@ -39,7 +39,7 @@ vars.AddVariables(
     # these variables define the locations of various tools and data
     ("BASE_PATH", "", None),
     ("OVERLAY", "", "${BASE_PATH}/local"),
-    ("LANGUAGE_PACKS", "", "${BASE_PATH}/language_packs"),
+    ("LANGUAGE_PACKS", "", "${BASE_PATH}/language_transcripts"),
     ("IBM_MODELS", "", "${BASE_PATH}/ibm_models"),
     ("LORELEI_SVN", "", "${BASE_PATH}/lorelei_svn"),
     ("ATTILA_PATH", "", "${BASE_PATH}/VT-2-5-babel"),
@@ -84,7 +84,7 @@ vars.AddVariables(
 # create the actual build environment we'll be using
 #
 env = Environment(variables=vars, ENV={}, TARFLAGS="-c -z", TARSUFFIX=".tgz",
-                  tools=["default", "textfile"] + [x.TOOLS_ADD for x in [asr_tools, kws_tools, torque_tools, babel_tools, trmorph_tools]],
+                  tools=["default", "textfile"] + [x.TOOLS_ADD for x in [asr_tools, kws_tools, torque_tools, babel_tools, trmorph_tools, vocabulary_tools]],
                   BUILDERS={"CopyFile" : Builder(action="cp ${SOURCE} ${TARGET}")}
                   )
 
@@ -121,6 +121,12 @@ def print_cmd_line(s, target, source, env):
 
 env['PRINT_CMD_LINE_FUNC'] = print_cmd_line
 
+
+"""
+file conventions: text.gz, vocabulary.gz, probabilities.gz, language_model.gz, pronunciations.gz, frequencies.gz
+"""
+
+
 #
 # morph, lm rerank, lm rerank w averaging, lm reranking for morpheme boundaries
 #
@@ -141,16 +147,47 @@ for language, config in env["LANGUAGES"].iteritems():
     limited_bigram_expansions = env.SplitExpansion([limited_bigram_expansions_file, env.Value(50000)],
                                                    BASE_PATH=pjoin("work", "expansions", language, "limited", "bigram"))
 
+    oracle_text = env.CollectText(pjoin("work", "texts", language, "oracle_text.txt.gz"),
+                                  [env.subst("${LANGUAGE_PACKS}/%d.tgz" % language_id), env.Value(".*(sub-train|dev)/transcription.*txt")],
+                                  )
+
+    training_text = env.CollectText(pjoin("work", "texts", language, "training_text.txt.gz"),
+                                    [env.subst("${LANGUAGE_PACKS}/%d.tgz" % language_id), env.Value(".*sub-train/transcription.*txt")],
+                                    )
+
+    dev_text = env.CollectText(pjoin("work", "texts", language, "dev_text.txt.gz"),
+                               [env.subst("${LANGUAGE_PACKS}/%d.tgz" % language_id), env.Value(".*dev/transcription.*txt")],
+                               )
+
+    oracle_vocabulary_file = env.TextToVocabulary(pjoin("work", "vocabularies", language, "oracle_vocabulary.txt.gz"),
+                                                  oracle_text)
+
+    training_vocabulary_file = env.TextToVocabulary(pjoin("work", "vocabularies", language, "training_vocabulary.txt.gz"),
+                                                    training_text)
+
+    dev_vocabulary_file = env.TextToVocabulary(pjoin("work", "vocabularies", language, "dev_vocabulary.txt.gz"),
+                                               dev_text)
+
+    #env.FilterBy(pjoin("work", "vocabularies", language, "oov_vocabulary.txt.gz"),
+    #             [oracle_vocaulary_file, 
+
     for x in limited_basic_expansions + limited_bigram_expansions:
-        env.TurkishFilter(x)
-    
+        (base, ext) = meta_splitext(x.rstr())
+        exp_vocab = env.ProbabilityListToVocabulary("%s_vocabulary.gz" % (base),
+                                                    x)
+        env.FilterBy("%s_in_train_or_dev_vocabulary.gz" % (base),
+                     [exp_vocab, oracle_vocabulary_file])
+
+        if language == "turkish":
+            env.TurkishFilter("%s_in_language_vocabulary.gz" % (base),
+                              x)
+
+    continue
     if os.path.exists(pjoin(env.subst(env["IBM_MODELS"]), str(language_id))):
         limited_pronunciations_file = env.File(pjoin(env["IBM_MODELS"], str(language_id), "LLP", "models", "dict.test")) #config["pronunciations"]
         limited_vocabulary_file = env.File(pjoin(env["IBM_MODELS"], str(language_id), "LLP", "models", "vocab"))
         limited_language_model_file = env.Glob(pjoin(env["IBM_MODELS"], str(language_id), "LLP", "models", "lm.*"))[0]
         
-        for x in limited_basic_expansions + limited_bigram_expansions:
-            pass
 
         for pack in ["LLP"]:
 
